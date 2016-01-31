@@ -30,6 +30,7 @@ class AP_InertialSensor_Backend
 {
 public:
     AP_InertialSensor_Backend(AP_InertialSensor &imu);
+    AP_InertialSensor_Backend(const AP_InertialSensor_Backend &that) = delete;
 
     // we declare a virtual destructor so that drivers can
     // override with a custom destructor if need be.
@@ -42,17 +43,10 @@ public:
      */
     virtual bool update() = 0;
 
-    /* 
-     * return true if at least one accel sample is available in the backend
-     * since the last call to update()
+    /*
+     * optional function to accumulate more samples. This is needed for drivers that don't use a timer to gather samples
      */
-    virtual bool accel_sample_available() = 0;
-
-    /* 
-     * return true if at least one gyro sample is available in the backend
-     * since the last call to update()
-     */
-    virtual bool gyro_sample_available() = 0;
+    virtual void accumulate() {}
 
     /*
      * Configure and start all sensors. The empty implementation allows
@@ -63,7 +57,7 @@ public:
     /*
      * Return an AuxiliaryBus if backend has another bus it is able to export
      */
-    virtual AuxiliaryBus *get_auxiliar_bus() { return nullptr; }
+    virtual AuxiliaryBus *get_auxiliary_bus() { return nullptr; }
 
     /*
       return the product ID
@@ -79,11 +73,14 @@ protected:
     void _rotate_and_correct_accel(uint8_t instance, Vector3f &accel);
     void _rotate_and_correct_gyro(uint8_t instance, Vector3f &gyro);
 
-    void _publish_delta_velocity(uint8_t instance, const Vector3f &delta_velocity, float dt);
-    void _publish_delta_angle(uint8_t instance, const Vector3f &delta_angle);
-
     // rotate gyro vector, offset and publish
     void _publish_gyro(uint8_t instance, const Vector3f &gyro);
+
+    // this should be called every time a new gyro raw sample is available -
+    // be it published or not
+    // the sample is raw in the sense that it's not filtered yet, but it must
+    // be rotated and corrected (_rotate_and_correct_gyro)
+    void _notify_new_gyro_raw_sample(uint8_t instance, const Vector3f &accel, uint64_t sample_us=0);
 
     // rotate accel vector, scale, offset and publish
     void _publish_accel(uint8_t instance, const Vector3f &accel);
@@ -92,15 +89,19 @@ protected:
     // be it published or not
     // the sample is raw in the sense that it's not filtered yet, but it must
     // be rotated and corrected (_rotate_and_correct_accel)
-    void _notify_new_accel_raw_sample(uint8_t instance, const Vector3f &accel);
+    void _notify_new_accel_raw_sample(uint8_t instance, const Vector3f &accel, uint64_t sample_us=0);
 
     // set accelerometer max absolute offset for calibration
     void _set_accel_max_abs_offset(uint8_t instance, float offset);
 
-    // set accelerometer sample rate
-    void _set_accel_sample_rate(uint8_t instance, uint32_t rate);
-    uint32_t _accel_sample_rate(uint8_t instance) const {
-        return _imu._accel_sample_rates[instance];
+    // get accelerometer raw sample rate
+    uint32_t _accel_raw_sample_rate(uint8_t instance) const {
+        return _imu._accel_raw_sample_rates[instance];
+    }
+
+    // get gyroscope raw sample rate
+    uint32_t _gyro_raw_sample_rate(uint8_t instance) const {
+        return _imu._gyro_raw_sample_rates[instance];
     }
 
     // publish a temperature value
@@ -132,6 +133,16 @@ protected:
         return _imu._log_raw_data? _imu._dataflash : NULL; 
     }
 
+    // common gyro update function for all backends
+    void update_gyro(uint8_t instance);
+
+    // common accel update function for all backends
+    void update_accel(uint8_t instance);
+    
+    // support for updating filter at runtime
+    int8_t _last_accel_filter_hz[INS_MAX_INSTANCES];
+    int8_t _last_gyro_filter_hz[INS_MAX_INSTANCES];
+    
     // note that each backend is also expected to have a static detect()
     // function which instantiates an instance of the backend sensor
     // driver if the sensor is available

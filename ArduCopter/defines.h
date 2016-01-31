@@ -30,9 +30,9 @@ enum autopilot_yaw_mode {
 #define CH6_PWM_TRIGGER_LOW     1200
 
 // values used by the ap.ch7_opt and ap.ch8_opt flags
-#define AUX_SWITCH_LOW              0       // indicates auxiliar switch is in the low position (pwm <1200)
-#define AUX_SWITCH_MIDDLE           1       // indicates auxiliar switch is in the middle position (pwm >1200, <1800)
-#define AUX_SWITCH_HIGH             2       // indicates auxiliar switch is in the high position (pwm >1800)
+#define AUX_SWITCH_LOW              0       // indicates auxiliary switch is in the low position (pwm <1200)
+#define AUX_SWITCH_MIDDLE           1       // indicates auxiliary switch is in the middle position (pwm >1200, <1800)
+#define AUX_SWITCH_HIGH             2       // indicates auxiliary switch is in the high position (pwm >1800)
 
 // Aux Switch enumeration
 enum aux_sw_func {
@@ -65,7 +65,10 @@ enum aux_sw_func {
     AUXSW_LOST_COPTER_SOUND =   30, // Play lost copter sound
     AUXSW_MOTOR_ESTOP =         31, // Emergency Stop Switch
     AUXSW_MOTOR_INTERLOCK =     32, // Motor On/Off switch
-    AUXSW_BRAKE =               33  // Brake flight mode
+    AUXSW_BRAKE =               33, // Brake flight mode
+	AUXSW_RELAY2 =              34, // Relay2 pin on/off (in Mission planner set CH8_OPT  = 34)
+    AUXSW_RELAY3 =              35, // Relay3 pin on/off (in Mission planner set CH9_OPT  = 35)
+    AUXSW_RELAY4 =              36  // Relay4 pin on/off (in Mission planner set CH10_OPT = 36)
 };
 
 // Frame types
@@ -95,7 +98,6 @@ enum autopilot_modes {
     RTL =           6,  // automatic return to launching point
     CIRCLE =        7,  // automatic circular flight with automatic throttle
     LAND =          9,  // automatic landing with horizontal position control
-    OF_LOITER =    10,  // deprecated
     DRIFT =        11,  // semi-automous position, yaw and throttle control
     SPORT =        13,  // manual earth-frame angular rate control with manual throttle
     FLIP =         14,  // automatically flip the vehicle on the roll axis
@@ -184,7 +186,8 @@ enum GuidedMode {
     Guided_TakeOff,
     Guided_WP,
     Guided_Velocity,
-    Guided_PosVel
+    Guided_PosVel,
+    Guided_Angle,
 };
 
 // RTL states
@@ -199,6 +202,7 @@ enum RTLState {
 // Alt_Hold states
 enum AltHoldModeState {
     AltHold_Disarmed,
+    AltHold_MotorStop,
     AltHold_Takeoff,
     AltHold_Flying,
     AltHold_Landed
@@ -207,6 +211,7 @@ enum AltHoldModeState {
 // Loiter states
 enum LoiterModeState {
     Loiter_Disarmed,
+    Loiter_MotorStop,
     Loiter_Takeoff,
     Loiter_Flying,
     Loiter_Landed
@@ -251,6 +256,7 @@ enum FlipState {
 #define LOG_PARAMTUNE_MSG               0x1F
 #define LOG_HELI_MSG                    0x20
 #define LOG_PRECLAND_MSG                0x21
+#define LOG_GUIDEDTARGET_MSG            0x22
 
 #define MASK_LOG_ATTITUDE_FAST          (1<<0)
 #define MASK_LOG_ATTITUDE_MED           (1<<1)
@@ -327,6 +333,7 @@ enum FlipState {
 #define DATA_ROTOR_RUNUP_COMPLETE           58  // Heli only
 #define DATA_ROTOR_SPEED_BELOW_CRITICAL     59  // Heli only
 #define DATA_EKF_ALT_RESET                  60
+#define DATA_LAND_CANCELLED_BY_PILOT        61
 
 // Centi-degrees to radians
 #define DEGX100 5729.57795f
@@ -351,6 +358,7 @@ enum FlipState {
 #define ERROR_SUBSYSTEM_FAILSAFE_EKFINAV    17
 #define ERROR_SUBSYSTEM_BARO                18
 #define ERROR_SUBSYSTEM_CPU                 19
+#define ERROR_SUBSYSTEM_FAILSAFE_ADSB       20
 // general error codes
 #define ERROR_CODE_ERROR_RESOLVED           0
 #define ERROR_CODE_FAILED_TO_INITIALISE     1
@@ -369,7 +377,6 @@ enum FlipState {
 #define ERROR_CODE_CRASH_CHECK_LOSS_OF_CONTROL 2
 // subsystem specific error codes -- flip
 #define ERROR_CODE_FLIP_ABANDONED           2
-// subsystem specific error codes -- autotune
 
 // parachute failed to deploy because of low altitude or landed
 #define ERROR_CODE_PARACHUTE_TOO_LOW        2
@@ -417,5 +424,6 @@ enum FlipState {
 
 // for PILOT_THR_BHV parameter
 #define THR_BEHAVE_FEEDBACK_FROM_MID_STICK (1<<0)
+#define THR_BEHAVE_HIGH_THROTTLE_CANCELS_LAND (1<<1)
 
 #endif // _DEFINES_H

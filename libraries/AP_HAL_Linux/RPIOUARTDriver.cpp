@@ -2,10 +2,12 @@
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_LINUX
 
+#include "RPIOUARTDriver.h"
+
 #include <stdlib.h>
 #include <cstdio>
-#include "RPIOUARTDriver.h"
-#include "../AP_HAL/utility/RingBuffer.h"
+
+#include <AP_HAL/utility/RingBuffer.h>
 
 #include "px4io_protocol.h"
 
@@ -27,8 +29,8 @@ extern const AP_HAL::HAL& hal;
 
 using namespace Linux;
 
-LinuxRPIOUARTDriver::LinuxRPIOUARTDriver() :
-    LinuxUARTDriver(false),
+RPIOUARTDriver::RPIOUARTDriver() :
+    UARTDriver(false),
     _spi(NULL),
     _spi_sem(NULL),
     _last_update_timestamp(0),
@@ -40,27 +42,27 @@ LinuxRPIOUARTDriver::LinuxRPIOUARTDriver() :
     _writebuf = NULL;
 }
 
-bool LinuxRPIOUARTDriver::sem_take_nonblocking()
+bool RPIOUARTDriver::sem_take_nonblocking()
 {
     return _spi_sem->take_nonblocking();
 }
 
-void LinuxRPIOUARTDriver::sem_give()
+void RPIOUARTDriver::sem_give()
 {
     _spi_sem->give();
 }
 
-bool LinuxRPIOUARTDriver::isExternal()
+bool RPIOUARTDriver::isExternal()
 {
     return _external;
 }
 
-void LinuxRPIOUARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
+void RPIOUARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
 {
     //hal.console->printf("[RPIOUARTDriver]: begin \n");
     
     if (device_path != NULL) {
-        LinuxUARTDriver::begin(b,rxS,txS);
+        UARTDriver::begin(b,rxS,txS);
         if ( is_initialized()) {
             _external = true;
             return;
@@ -106,14 +108,14 @@ void LinuxRPIOUARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
    _spi = hal.spi->device(AP_HAL::SPIDevice_RASPIO);
 
    if (_spi == NULL) {
-       hal.scheduler->panic("Cannot get SPIDevice_RASPIO");
+       AP_HAL::panic("Cannot get SPIDevice_RASPIO");
    }
 
    _spi_sem = _spi->get_semaphore();
     
     if (_spi_sem == NULL) {
-        hal.scheduler->panic(PSTR("PANIC: RASPIOUARTDriver did not get "
-                                  "valid SPI semaphore!"));
+        AP_HAL::panic("PANIC: RASPIOUARTDriver did not get "
+                                  "valid SPI semaphore!");
         return; // never reached
     }
     
@@ -130,28 +132,28 @@ void LinuxRPIOUARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
 
 }
 
-int LinuxRPIOUARTDriver::_write_fd(const uint8_t *buf, uint16_t n)
+int RPIOUARTDriver::_write_fd(const uint8_t *buf, uint16_t n)
 {
     if (_external) {
-        return LinuxUARTDriver::_write_fd(buf, n);
+        return UARTDriver::_write_fd(buf, n);
     } 
 
     return -1;
 }
 
-int LinuxRPIOUARTDriver::_read_fd(uint8_t *buf, uint16_t n)
+int RPIOUARTDriver::_read_fd(uint8_t *buf, uint16_t n)
 {
     if (_external) {
-        return LinuxUARTDriver::_read_fd(buf, n);
+        return UARTDriver::_read_fd(buf, n);
     }
     
     return -1;
 }
 
-void LinuxRPIOUARTDriver::_timer_tick(void)
+void RPIOUARTDriver::_timer_tick(void)
 {
     if (_external) {
-        LinuxUARTDriver::_timer_tick();
+        UARTDriver::_timer_tick();
         return;
     }
     
@@ -189,7 +191,7 @@ void LinuxRPIOUARTDriver::_timer_tick(void)
     if (!_initialised) return;
     
     /* lower the update rate */
-    if (hal.scheduler->micros() - _last_update_timestamp < RPIOUART_POLL_TIME_INTERVAL) {
+    if (AP_HAL::micros() - _last_update_timestamp < RPIOUART_POLL_TIME_INTERVAL) {
         return;
     }
     
@@ -285,7 +287,7 @@ void LinuxRPIOUARTDriver::_timer_tick(void)
     
     _in_timer = false;
     
-    _last_update_timestamp = hal.scheduler->micros();
+    _last_update_timestamp = AP_HAL::micros();
 }
 
 #endif

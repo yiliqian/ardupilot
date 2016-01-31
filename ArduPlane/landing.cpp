@@ -16,15 +16,6 @@ bool Plane::verify_land()
     // so we don't verify command completion. Instead we use this to
     // adjust final landing parameters
 
-    // If a go around has been commanded, we are done landing.  This will send
-    // the mission to the next mission item, which presumably is a mission
-    // segment with operations to perform when a landing is called off.
-    // If there are no commands after the land waypoint mission item then
-    // the plane will proceed to loiter about its home point.
-    if (auto_state.commanded_go_around) {
-        return true;
-    }
-
     // when aborting a landing, mimic the verify_takeoff with steering hold. Once
     // the altitude has been reached, restart the landing sequence
     if (flight_stage == AP_SpdHgtControl::FLIGHT_LAND_ABORT) {
@@ -74,9 +65,9 @@ bool Plane::verify_land()
         if (!auto_state.land_complete) {
             auto_state.post_landing_stats = true;
             if (!is_flying() && (millis()-auto_state.last_flying_ms) > 3000) {
-                gcs_send_text_fmt(PSTR("Flare crash detected: speed=%.1f"), (double)gps.ground_speed());
+                gcs_send_text_fmt(MAV_SEVERITY_CRITICAL, "Flare crash detected: speed=%.1f", (double)gps.ground_speed());
             } else {
-                gcs_send_text_fmt(PSTR("Flare %.1fm sink=%.2f speed=%.1f dist=%.1f"), 
+                gcs_send_text_fmt(MAV_SEVERITY_INFO, "Flare %.1fm sink=%.2f speed=%.1f dist=%.1f",
                                   (double)height, (double)auto_state.sink_rate,
                                   (double)gps.ground_speed(),
                                   (double)get_distance(current_loc, next_WP_loc));
@@ -110,7 +101,7 @@ bool Plane::verify_land()
     // this is done before disarm_if_autoland_complete() so that it happens on the next loop after the disarm
     if (auto_state.post_landing_stats && !arming.is_armed()) {
         auto_state.post_landing_stats = false;
-        gcs_send_text_fmt(PSTR("Distance from LAND point=%.2fm"), (double)get_distance(current_loc, next_WP_loc));
+        gcs_send_text_fmt(MAV_SEVERITY_INFO, "Distance from LAND point=%.2fm", (double)get_distance(current_loc, next_WP_loc));
     }
 
     // check if we should auto-disarm after a confirmed landing
@@ -139,7 +130,7 @@ void Plane::disarm_if_autoland_complete()
         /* we have auto disarm enabled. See if enough time has passed */
         if (millis() - auto_state.last_flying_ms >= g.land_disarm_delay*1000UL) {
             if (disarm_motors()) {
-                gcs_send_text_P(MAV_SEVERITY_WARNING,PSTR("Auto-Disarmed"));
+                gcs_send_text(MAV_SEVERITY_INFO,"Auto disarmed");
             }
         }
     }
@@ -260,14 +251,14 @@ bool Plane::restart_landing_sequence()
             mission.set_current_cmd(current_index+1))
     {
         // if the next immediate command is MAV_CMD_NAV_CONTINUE_AND_CHANGE_ALT to climb, do it
-        gcs_send_text_fmt(PSTR("Restarted landing sequence climbing to %dm"), cmd.content.location.alt/100);
+        gcs_send_text_fmt(MAV_SEVERITY_NOTICE, "Restarted landing sequence. Climbing to %dm", cmd.content.location.alt/100);
         success =  true;
     }
     else if (do_land_start_index != 0 &&
             mission.set_current_cmd(do_land_start_index))
     {
         // look for a DO_LAND_START and use that index
-        gcs_send_text_fmt(PSTR("Restarted landing via DO_LAND_START: %d"),do_land_start_index);
+        gcs_send_text_fmt(MAV_SEVERITY_NOTICE, "Restarted landing via DO_LAND_START: %d",do_land_start_index);
         success =  true;
     }
     else if (prev_cmd_with_wp_index != AP_MISSION_CMD_INDEX_NONE &&
@@ -275,10 +266,10 @@ bool Plane::restart_landing_sequence()
     {
         // if a suitable navigation waypoint was just executed, one that contains lat/lng/alt, then
         // repeat that cmd to restart the landing from the top of approach to repeat intended glide slope
-        gcs_send_text_fmt(PSTR("Restarted landing sequence at waypoint %d"), prev_cmd_with_wp_index);
+        gcs_send_text_fmt(MAV_SEVERITY_NOTICE, "Restarted landing sequence at waypoint %d", prev_cmd_with_wp_index);
         success =  true;
     } else {
-        gcs_send_text_fmt(PSTR("Unable to restart landing sequence!"));
+        gcs_send_text_fmt(MAV_SEVERITY_WARNING, "Unable to restart landing sequence");
         success =  false;
     }
     return success;
@@ -301,12 +292,12 @@ bool Plane::jump_to_landing_sequence(void)
                 mission.resume();
             }
 
-            gcs_send_text_P(MAV_SEVERITY_WARNING, PSTR("Landing sequence begun."));
+            gcs_send_text(MAV_SEVERITY_INFO, "Landing sequence start");
             return true;
         }            
     }
 
-    gcs_send_text_P(MAV_SEVERITY_CRITICAL, PSTR("Unable to start landing sequence."));
+    gcs_send_text(MAV_SEVERITY_WARNING, "Unable to start landing sequence");
     return false;
 }
 

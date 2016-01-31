@@ -132,7 +132,8 @@ bool MAVLink_routing::check_and_forward(mavlink_channel_t in_channel, const mavl
     for (uint8_t i=0; i<num_routes; i++) {
         if (broadcast_system || (target_system == routes[i].sysid &&
                                  (broadcast_component || 
-                                  target_component == routes[i].compid))) {
+                                  target_component == routes[i].compid ||
+                                  !match_system))) {
             if (in_channel != routes[i].channel && !sent_to_chan[routes[i].channel]) {
                 if (comm_get_txspace(routes[i].channel) >= 
                     ((uint16_t)msg->len) + MAVLINK_NUM_NON_PAYLOAD_BYTES) {
@@ -491,6 +492,18 @@ void MAVLink_routing::get_targets(const mavlink_message_t* msg, int16_t &sysid, 
     case MAVLINK_MSG_ID_GIMBAL_CONTROL:
         sysid  = mavlink_msg_gimbal_control_get_target_system(msg);
         compid = mavlink_msg_gimbal_control_get_target_component(msg);
+        break;
+    case MAVLINK_MSG_ID_GIMBAL_TORQUE_CMD_REPORT:
+        sysid  = mavlink_msg_gimbal_torque_cmd_report_get_target_system(msg);
+        compid = mavlink_msg_gimbal_torque_cmd_report_get_target_component(msg);
+        break;
+    case MAVLINK_MSG_ID_REMOTE_LOG_DATA_BLOCK:
+        sysid  = mavlink_msg_remote_log_data_block_get_target_system(msg);
+        compid = mavlink_msg_remote_log_data_block_get_target_component(msg);
+        break;
+    case MAVLINK_MSG_ID_REMOTE_LOG_BLOCK_STATUS:
+        sysid  = mavlink_msg_remote_log_block_status_get_target_system(msg);
+        compid = mavlink_msg_remote_log_block_status_get_target_component(msg);
         break;
     }
 }

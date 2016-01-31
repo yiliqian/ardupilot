@@ -6,7 +6,6 @@ echo "Initial setup of SITL-vagrant instance."
 
 BASE_PKGS="gawk make git arduino-core curl"
 SITL_PKGS="g++ python-pip python-matplotlib python-serial python-wxgtk2.8 python-scipy python-opencv python-numpy python-empy python-pyparsing ccache"
-AVR_PKGS="gcc-avr binutils-avr avr-libc"
 PYTHON_PKGS="pymavlink MAVProxy droneapi"
 PX4_PKGS="python-serial python-argparse openocd flex bison libncurses5-dev \
           autoconf texinfo build-essential libftdi-dev libtool zlib1g-dev \
@@ -15,8 +14,8 @@ UBUNTU64_PKGS="libc6:i386 libgcc1:i386 gcc-4.6-base:i386 libstdc++5:i386 libstdc
 
 # GNU Tools for ARM Embedded Processors
 # (see https://launchpad.net/gcc-arm-embedded/)
-ARM_ROOT="gcc-arm-none-eabi-4_7-2014q2"
-ARM_TARBALL="$ARM_ROOT-20140408-linux.tar.bz2"
+ARM_ROOT="gcc-arm-none-eabi-4_9-2015q3"
+ARM_TARBALL="$ARM_ROOT-20150921-linux.tar.bz2"
 ARM_TARBALL_URL="http://firmware.diydrones.com/Tools/PX4-tools/$ARM_TARBALL"
 
 # Ardupilot Tools
@@ -27,7 +26,7 @@ sudo usermod -a -G dialout $USER
 sudo apt-get -y remove modemmanager
 sudo apt-get -y update
 sudo apt-get -y install dos2unix g++-4.7 ccache python-lxml screen
-sudo apt-get -y install $BASE_PKGS $SITL_PKGS $PX4_PKGS $UBUNTU64_PKGS $AVR_PKGS
+sudo apt-get -y install $BASE_PKGS $SITL_PKGS $PX4_PKGS $UBUNTU64_PKGS
 sudo pip -q install $PYTHON_PKGS
 sudo pip install catkin_pkg
 

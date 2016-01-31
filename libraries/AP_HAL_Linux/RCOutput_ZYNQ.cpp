@@ -20,12 +20,11 @@ using namespace Linux;
 
 #define PWM_CHAN_COUNT 8	// FIXME
 
-static const AP_HAL::HAL& hal = AP_HAL_BOARD_DRIVER;
 static void catch_sigbus(int sig)
 {
-    hal.scheduler->panic("RCOutput.cpp:SIGBUS error gernerated\n");
+    AP_HAL::panic("RCOutput.cpp:SIGBUS error gernerated\n");
 }
-void LinuxRCOutput_ZYNQ::init(void* machtnicht)
+void RCOutput_ZYNQ::init()
 {
     uint32_t mem_fd;
     signal(SIGBUS,catch_sigbus);
@@ -39,7 +38,7 @@ void LinuxRCOutput_ZYNQ::init(void* machtnicht)
     set_freq(0xFFFFFFFF, 50);
 }
 
-void LinuxRCOutput_ZYNQ::set_freq(uint32_t chmask, uint16_t freq_hz)            //LSB corresponds to CHAN_1
+void RCOutput_ZYNQ::set_freq(uint32_t chmask, uint16_t freq_hz)            //LSB corresponds to CHAN_1
 {
     uint8_t i;
     unsigned long tick=TICK_PER_S/(unsigned long)freq_hz;
@@ -51,43 +50,32 @@ void LinuxRCOutput_ZYNQ::set_freq(uint32_t chmask, uint16_t freq_hz)            
     }
 }
 
-uint16_t LinuxRCOutput_ZYNQ::get_freq(uint8_t ch)
+uint16_t RCOutput_ZYNQ::get_freq(uint8_t ch)
 {
     return TICK_PER_S/sharedMem_cmd->periodhi[ch].period;;
 }
 
-void LinuxRCOutput_ZYNQ::enable_ch(uint8_t ch)
+void RCOutput_ZYNQ::enable_ch(uint8_t ch)
 {
     // sharedMem_cmd->enmask |= 1U<<chan_pru_map[ch];
 }
 
-void LinuxRCOutput_ZYNQ::disable_ch(uint8_t ch)
+void RCOutput_ZYNQ::disable_ch(uint8_t ch)
 {
     // sharedMem_cmd->enmask &= !(1U<<chan_pru_map[ch]);
 }
 
-void LinuxRCOutput_ZYNQ::write(uint8_t ch, uint16_t period_us)
+void RCOutput_ZYNQ::write(uint8_t ch, uint16_t period_us)
 {
     sharedMem_cmd->periodhi[ch].hi = TICK_PER_US*period_us;
 }
 
-void LinuxRCOutput_ZYNQ::write(uint8_t ch, uint16_t* period_us, uint8_t len)
-{
-    uint8_t i;
-    if(len>PWM_CHAN_COUNT){
-        len = PWM_CHAN_COUNT;
-    }
-    for(i=0;i<len;i++){
-        write(ch+i,period_us[i]);
-    }
-}
-
-uint16_t LinuxRCOutput_ZYNQ::read(uint8_t ch)
+uint16_t RCOutput_ZYNQ::read(uint8_t ch)
 {
     return (sharedMem_cmd->periodhi[ch].hi/TICK_PER_US);
 }
 
-void LinuxRCOutput_ZYNQ::read(uint16_t* period_us, uint8_t len)
+void RCOutput_ZYNQ::read(uint16_t* period_us, uint8_t len)
 {
     uint8_t i;
     if(len>PWM_CHAN_COUNT){

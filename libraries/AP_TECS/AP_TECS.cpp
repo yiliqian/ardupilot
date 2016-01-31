@@ -14,7 +14,7 @@ extern const AP_HAL::HAL& hal;
 //Debug("%.2f %.2f %.2f %.2f \n", var1, var2, var3, var4);
 
 // table of user settable parameters
-const AP_Param::GroupInfo AP_TECS::var_info[] PROGMEM = {
+const AP_Param::GroupInfo AP_TECS::var_info[] = {
 
     // @Param: CLMB_MAX
     // @DisplayName: Maximum Climb Rate (metres/sec)
@@ -122,16 +122,16 @@ const AP_Param::GroupInfo AP_TECS::var_info[] PROGMEM = {
 
     // @Param: LAND_THR
     // @DisplayName: Cruise throttle during landing approach (percentage)
-    // @Description: Use this parameter instead of LAND_ASPD if your platform does not have an airspeed sensor.  It is the cruise throttle during landing approach.  If it is negative if TECS_LAND_ASPD is in use then this value is not used during landing.
-    // @Range: -1 to 100
+    // @Description: Use this parameter instead of LAND_ARSPD if your platform does not have an airspeed sensor.  It is the cruise throttle during landing approach.  If this value is negative then it is disabled and TECS_LAND_ARSPD is used instead.
+    // @Range: -1 100
     // @Increment: 0.1
     // @User: User
     AP_GROUPINFO("LAND_THR", 13, AP_TECS, _landThrottle, -1),
 
     // @Param: LAND_SPDWGT
     // @DisplayName: Weighting applied to speed control during landing.
-    // @Description: Same as SPDWEIGHT parameter, with the exception that this parameter is applied during landing flight stages.  A value closer to 2 will result in the plane ignoring height error during landing and our experience has been that the plane will therefore keep the nose up -- sometimes good for a glider landing (with the side effect that you will likely glide a ways past the landing point).  A value closer to 0 results in the plane ignoring speed error -- use caution when lowering the value below 1 -- ignoring speed could result in a stall.
-    // @Range: 0.0 2.0
+    // @Description: Same as SPDWEIGHT parameter, with the exception that this parameter is applied during landing flight stages.  A value closer to 2 will result in the plane ignoring height error during landing and our experience has been that the plane will therefore keep the nose up -- sometimes good for a glider landing (with the side effect that you will likely glide a ways past the landing point).  A value closer to 0 results in the plane ignoring speed error -- use caution when lowering the value below 1 -- ignoring speed could result in a stall. Values between 0 and 2 are valid values for a fixed landing weight. When using -1 the weight will be scaled during the landing. At the start of the landing approach it starts with TECS_SPDWEIGHT and scales down to 0 by the time you reach the land point. Example: Halfway down the landing approach you'll effectively have a weight of TECS_SPDWEIGHT/2.
+    // @Range: -1.0 2.0
     // @Increment: 0.1
     // @User: Advanced
     AP_GROUPINFO("LAND_SPDWGT", 14, AP_TECS, _spdWeightLand, 1.0f),
@@ -225,8 +225,8 @@ void AP_TECS::update_50hz(float hgt_afe)
     }
 
     // Calculate time in seconds since last update
-    uint32_t now = hal.scheduler->micros();
-    float DT = max((now - _update_50hz_last_usec),0)*1.0e-6f;
+    uint32_t now = AP_HAL::micros();
+    float DT = MAX((now - _update_50hz_last_usec), 0U) * 1.0e-6f;
     if (DT > 1.0f) {
         _climb_rate = 0.0f;
         _height_filter.dd_height = 0.0f;
@@ -272,7 +272,7 @@ void AP_TECS::update_50hz(float hgt_afe)
 
     // Update and average speed rate of change
     // Get DCM
-    const Matrix3f &rotMat = _ahrs.get_dcm_matrix();
+    const Matrix3f &rotMat = _ahrs.get_rotation_body_to_ned();
     // Calculate speed rate of change
     float temp = rotMat.c.x * GRAVITY_MSS + _ahrs.get_ins().get_accel().x;
     // take 5 point moving average
@@ -283,8 +283,8 @@ void AP_TECS::update_50hz(float hgt_afe)
 void AP_TECS::_update_speed(float load_factor)
 {
     // Calculate time in seconds since last update
-    uint32_t now = hal.scheduler->micros();
-    float DT = max((now - _update_speed_last_usec),0)*1.0e-6f;
+    uint32_t now = AP_HAL::micros();
+    float DT = MAX((now - _update_speed_last_usec), 0U) * 1.0e-6f;
     _update_speed_last_usec = now;
 
     // Convert equivalent airspeeds to true airspeeds
@@ -333,13 +333,13 @@ void AP_TECS::_update_speed(float load_factor)
     float integ4_input = aspdErr * _spdCompFiltOmega * _spdCompFiltOmega;
     // Prevent state from winding up
     if (_integ5_state < 3.1f) {
-        integ4_input = max(integ4_input , 0.0f);
+        integ4_input = MAX(integ4_input , 0.0f);
     }
     _integ4_state = _integ4_state + integ4_input * DT;
     float integ5_input = _integ4_state + _vel_dot + aspdErr * _spdCompFiltOmega * 1.4142f;
     _integ5_state = _integ5_state + integ5_input * DT;
     // limit the airspeed to a minimum of 3 m/s
-    _integ5_state = max(_integ5_state, 3.0f);
+    _integ5_state = MAX(_integ5_state, 3.0f);
 
 }
 
@@ -454,7 +454,9 @@ void AP_TECS::_update_height_demand(void)
 
 void AP_TECS::_detect_underspeed(void)
 {
-    if (((_integ5_state < _TASmin * 0.9f) &&
+    if (_flight_stage == AP_TECS::FLIGHT_VTOL) {
+        _underspeed = false;
+    } else if (((_integ5_state < _TASmin * 0.9f) &&
             (_throttle_dem >= _THRmaxf * 0.95f) &&
             _flight_stage != AP_TECS::FLIGHT_LAND_FINAL) ||
             ((_height < _hgt_dem_adj) && _underspeed))
@@ -535,7 +537,7 @@ void AP_TECS::_update_throttle(void)
         // Calculate feed-forward throttle
         float ff_throttle = 0;
         float nomThr = aparm.throttle_cruise * 0.01f;
-        const Matrix3f &rotMat = _ahrs.get_dcm_matrix();
+        const Matrix3f &rotMat = _ahrs.get_rotation_body_to_ned();
         // Use the demanded rate of change of total energy as the feed-forward demand, but add
         // additional component which scales with (1/cos(bank angle) - 1) to compensate for induced
         // drag increase during turns.
@@ -619,7 +621,7 @@ void AP_TECS::_update_throttle_option(int16_t throttle_nudge)
     }
 
     // Calculate additional throttle for turn drag compensation including throttle nudging
-    const Matrix3f &rotMat = _ahrs.get_dcm_matrix();
+    const Matrix3f &rotMat = _ahrs.get_rotation_body_to_ned();
     // Use the demanded rate of change of total energy as the feed-forward demand, but add
     // additional component which scales with (1/cos(bank angle) - 1) to compensate for induced
     // drag increase during turns.
@@ -667,7 +669,13 @@ void AP_TECS::_update_pitch(void)
     } else if ( _underspeed || _flight_stage == AP_TECS::FLIGHT_TAKEOFF || _flight_stage == AP_TECS::FLIGHT_LAND_ABORT) {
         SKE_weighting = 2.0f;
     } else if (_flight_stage == AP_TECS::FLIGHT_LAND_APPROACH || _flight_stage == AP_TECS::FLIGHT_LAND_FINAL) {
-        SKE_weighting = constrain_float(_spdWeightLand, 0.0f, 2.0f);
+        if (_spdWeightLand < 0) {
+            // use sliding scale from normal weight down to zero at landing
+            float scaled_weight = _spdWeight * (1.0f - _path_proportion);
+            SKE_weighting = constrain_float(scaled_weight, 0.0f, 2.0f);
+        } else {
+            SKE_weighting = constrain_float(_spdWeightLand, 0.0f, 2.0f);
+        }
     }
 
     float SPE_weighting = 2.0f - SKE_weighting;
@@ -682,11 +690,11 @@ void AP_TECS::_update_pitch(void)
     float integ7_input = SEB_error * _integGain;
     if (_pitch_dem > _PITCHmaxf)
     {
-        integ7_input = min(integ7_input, _PITCHmaxf - _pitch_dem);
+        integ7_input = MIN(integ7_input, _PITCHmaxf - _pitch_dem);
     }
     else if (_pitch_dem < _PITCHminf)
     {
-        integ7_input = max(integ7_input, _PITCHminf - _pitch_dem);
+        integ7_input = MAX(integ7_input, _PITCHminf - _pitch_dem);
     }
     _integ7_state = _integ7_state + integ7_input * _DT;
 
@@ -793,8 +801,8 @@ void AP_TECS::update_pitch_throttle(int32_t hgt_dem_cm,
                                     float load_factor)
 {
     // Calculate time in seconds since last update
-    uint32_t now = hal.scheduler->micros();
-    _DT = max((now - _update_pitch_throttle_last_usec),0)*1.0e-6f;
+    uint32_t now = AP_HAL::micros();
+    _DT = MAX((now - _update_pitch_throttle_last_usec), 0U) * 1.0e-6f;
     _update_pitch_throttle_last_usec = now;
 
     // Update the speed estimate using a 2nd order complementary filter
@@ -818,20 +826,25 @@ void AP_TECS::update_pitch_throttle(int32_t hgt_dem_cm,
     if (_pitch_max <= 0) {
         _PITCHmaxf = aparm.pitch_limit_max_cd * 0.01f;
     } else {
-        _PITCHmaxf = min(_pitch_max, aparm.pitch_limit_max_cd * 0.01f);
+        _PITCHmaxf = MIN(_pitch_max, aparm.pitch_limit_max_cd * 0.01f);
     }
+
+    // apply temporary pitch limit and clear
+    _PITCHmaxf = constrain_float(_PITCHmaxf, -90, _pitch_max_limit);
+    _pitch_max_limit = 90;
+    
     if (_pitch_min >= 0) {
         _PITCHminf = aparm.pitch_limit_min_cd * 0.01f;
     } else {
-        _PITCHminf = max(_pitch_min, aparm.pitch_limit_min_cd * 0.01f);
+        _PITCHminf = MAX(_pitch_min, aparm.pitch_limit_min_cd * 0.01f);
     }
     if (flight_stage == FLIGHT_LAND_FINAL) {
         // in flare use min pitch from LAND_PITCH_CD
-        _PITCHminf = max(_PITCHminf, aparm.land_pitch_cd * 0.01f);
+        _PITCHminf = MAX(_PITCHminf, aparm.land_pitch_cd * 0.01f);
 
         // and use max pitch from TECS_LAND_PMAX
         if (_land_pitch_max > 0) {
-            _PITCHmaxf = min(_PITCHmaxf, _land_pitch_max);
+            _PITCHmaxf = MIN(_PITCHmaxf, _land_pitch_max);
         }
 
         // and allow zero throttle
@@ -843,7 +856,7 @@ void AP_TECS::update_pitch_throttle(int32_t hgt_dem_cm,
         float time_to_flare = (- hgt_afe / _climb_rate) - aparm.land_flare_sec;
         if (time_to_flare < 0) {
             // we should be flaring already
-            _PITCHminf = max(_PITCHminf, aparm.land_pitch_cd * 0.01f);
+            _PITCHminf = MAX(_PITCHminf, aparm.land_pitch_cd * 0.01f);
         } else if (time_to_flare < timeConstant()*2) {
             // smoothly move the min pitch to the flare min pitch over
             // twice the time constant
@@ -853,7 +866,7 @@ void AP_TECS::update_pitch_throttle(int32_t hgt_dem_cm,
             ::printf("ttf=%.1f hgt_afe=%.1f _PITCHminf=%.1f pitch_limit=%.1f climb=%.1f\n",
                      time_to_flare, hgt_afe, _PITCHminf, pitch_limit_cd*0.01f, _climb_rate);
 #endif
-            _PITCHminf = max(_PITCHminf, pitch_limit_cd*0.01f);
+            _PITCHminf = MAX(_PITCHminf, pitch_limit_cd*0.01f);
         }
     }
 
@@ -907,7 +920,7 @@ void AP_TECS::update_pitch_throttle(int32_t hgt_dem_cm,
     log_tuning.thr      = _throttle_dem;
     log_tuning.ptch     = _pitch_dem;
     log_tuning.dspd_dem = _TAS_rate_dem;
-    log_tuning.time_us  = hal.scheduler->micros64();
+    log_tuning.time_us  = AP_HAL::micros64();
 }
 
 // log the contents of the log_tuning structure to dataflash

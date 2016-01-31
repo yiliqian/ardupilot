@@ -6,12 +6,12 @@
 #include <AP_HAL/AP_HAL.h>
 #include "AP_HAL_SITL_Namespace.h"
 
-class HALSITL::SITLEEPROMStorage : public AP_HAL::Storage {
+class HALSITL::EEPROMStorage : public AP_HAL::Storage {
 public:
-    SITLEEPROMStorage() {
+    EEPROMStorage() {
         _eeprom_fd = -1;
     }
-    void init(void* machtnichts) {}
+    void init() {}
     void read_block(void *dst, uint16_t src, size_t n);
     void write_block(uint16_t dst, const void* src, size_t n);
 

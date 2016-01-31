@@ -35,7 +35,7 @@
 extern const AP_HAL::HAL& hal;
 
 // table of user settable parameters
-const AP_Param::GroupInfo AP_Terrain::var_info[] PROGMEM = {
+const AP_Param::GroupInfo AP_Terrain::var_info[] = {
     // @Param: ENABLE
     // @DisplayName: Terrain data enable
     // @Description: enable terrain data. This enables the vehicle storing a database of terrain data on the SD card. The terrain data is requested from the ground station as needed, and stored for later use on the SD card. To be useful the ground station must support TERRAIN_REQUEST messages and have access to a terrain database, such as the SRTM database.
@@ -85,7 +85,7 @@ AP_Terrain::AP_Terrain(AP_AHRS &_ahrs, const AP_Mission &_mission, const AP_Rall
  */
 bool AP_Terrain::height_amsl(const Location &loc, float &height)
 {
-    if (!enable) {
+    if (!enable || !allocate()) {
         return false;
     }
 
@@ -250,7 +250,7 @@ bool AP_Terrain::height_relative_home_equivalent(float terrain_altitude,
 */
 float AP_Terrain::lookahead(float bearing, float distance, float climb_ratio)
 {
-    if (!enable || grid_spacing <= 0) {
+    if (!enable || !allocate() || grid_spacing <= 0) {
         return 0;
     }
 
@@ -302,7 +302,9 @@ void AP_Terrain::update(void)
 
     // update the cached current location height
     Location loc;
-    if (ahrs.get_position(loc) && height_amsl(loc, height)) {
+    bool pos_valid = ahrs.get_position(loc);
+    bool terrain_valid = height_amsl(loc, height);
+    if (pos_valid && terrain_valid) {
         last_current_loc_height = height;
         have_current_loc_height = true;
     }
@@ -313,33 +315,23 @@ void AP_Terrain::update(void)
     // check for pending rally data
     update_rally_data();
 
-    // update capabilities
+    // update capabilities and status
     if (enable) {
         hal.util->set_capabilities(MAV_PROTOCOL_CAPABILITY_TERRAIN);
+        if (!pos_valid) {
+            // we don't know where we are
+            system_status = TerrainStatusUnhealthy;
+        } else if (!terrain_valid) {
+            // we don't have terrain data at current location
+            system_status = TerrainStatusUnhealthy;
+        } else {
+            system_status = TerrainStatusOK;
+        }
     } else {
         hal.util->clear_capabilities(MAV_PROTOCOL_CAPABILITY_TERRAIN);
+        system_status = TerrainStatusDisabled;
     }
-}
 
-/*
-  return status enum for health reporting
-*/
-enum AP_Terrain::TerrainStatus AP_Terrain::status(void)
-{
-    if (!enable) {
-        return TerrainStatusDisabled;
-    }
-    Location loc;
-    if (!ahrs.get_position(loc)) {
-        // we don't know where we are
-        return TerrainStatusUnhealthy;
-    }
-    float height;
-    if (!height_amsl(loc, height)) {
-        // we don't have terrain data at current location
-        return TerrainStatusUnhealthy;        
-    }
-    return TerrainStatusOK; 
 }
 
 /*
@@ -365,7 +357,7 @@ void AP_Terrain::log_terrain_data(DataFlash_Class &dataflash)
 
     struct log_TERRAIN pkt = {
         LOG_PACKET_HEADER_INIT(LOG_TERRAIN_MSG),
-        time_us        : hal.scheduler->micros64(),
+        time_us        : AP_HAL::micros64(),
         status         : (uint8_t)status(),
         lat            : loc.lat,
         lng            : loc.lng,
@@ -376,6 +368,28 @@ void AP_Terrain::log_terrain_data(DataFlash_Class &dataflash)
         loaded         : loaded
     };
     dataflash.WriteBlock(&pkt, sizeof(pkt));
+}
+
+/*
+  allocate terrain cache. Making this dynamically allocated allows
+  memory to be saved when terrain functionality is disabled
+ */
+bool AP_Terrain::allocate(void)
+{
+    if (enable == 0) {
+        return false;
+    }
+    if (cache != nullptr) {
+        return true;
+    }
+    cache = (struct grid_cache *)calloc(TERRAIN_GRID_BLOCK_CACHE_SIZE, sizeof(cache[0]));
+    if (cache == nullptr) {
+        enable.set(0);
+        GCS_MAVLINK::send_statustext_all(MAV_SEVERITY_CRITICAL, "Terrain: Allocation failed");
+        return false;
+    }
+    cache_size = TERRAIN_GRID_BLOCK_CACHE_SIZE;
+    return true;
 }
 
 #endif // AP_TERRAIN_AVAILABLE

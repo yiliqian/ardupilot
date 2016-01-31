@@ -15,19 +15,14 @@
  */
 
 #include <AP_Common/AP_Common.h>
-#include <AP_Progmem/AP_Progmem.h>
 #include <AP_Param/AP_Param.h>
 #include <StorageManager/StorageManager.h>
 #include <fenv.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_HAL/AP_HAL.h>
-#include <AP_HAL_AVR/AP_HAL_AVR.h>
-#include <AP_HAL_SITL/AP_HAL_SITL.h>
-#include <AP_HAL_Linux/AP_HAL_Linux.h>
-#include <AP_HAL_Empty/AP_HAL_Empty.h>
+#include <AP_AccelCal/AP_AccelCal.h>
 #include <AP_ADC/AP_ADC.h>
 #include <AP_Declination/AP_Declination.h>
-#include <AP_ADC_AnalogSource/AP_ADC_AnalogSource.h>
 #include <Filter/Filter.h>
 #include <AP_Buffer/AP_Buffer.h>
 #include <AP_Airspeed/AP_Airspeed.h>
@@ -37,12 +32,12 @@
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_AHRS/AP_AHRS.h>
-#include <SITL/SITL.h>
 #include <AP_Compass/AP_Compass.h>
 #include <AP_Baro/AP_Baro.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
 #include <AP_InertialNav/AP_InertialNav.h>
 #include <AP_NavEKF/AP_NavEKF.h>
+#include <AP_NavEKF2/AP_NavEKF2.h>
 #include <AP_Mission/AP_Mission.h>
 #include <AP_Rally/AP_Rally.h>
 #include <AP_BattMonitor/AP_BattMonitor.h>
@@ -69,9 +64,13 @@
 #include "LogReader.h"
 #include "DataFlashFileReader.h"
 
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#include <SITL/SITL.h>
+#endif
+
 #define streq(x, y) (!strcmp(x, y))
 
-const AP_HAL::HAL& hal = AP_HAL_BOARD_DRIVER;
+const AP_HAL::HAL& hal = AP_HAL::get_HAL();
 
 class ReplayVehicle {
 public:
@@ -85,11 +84,12 @@ public:
     AP_SerialManager serial_manager;
     RangeFinder rng {serial_manager};
     NavEKF EKF{&ahrs, barometer, rng};
-    AP_AHRS_NavEKF ahrs {ins, barometer, gps, rng, EKF};
+    NavEKF2 EKF2{&ahrs, barometer, rng};
+    AP_AHRS_NavEKF ahrs {ins, barometer, gps, rng, EKF, EKF2};
     AP_InertialNav_NavEKF inertial_nav{ahrs};
     AP_Vehicle::FixedWing aparm;
     AP_Airspeed airspeed{aparm};
-    DataFlash_Class dataflash{PSTR("Replay v0.1")};
+    DataFlash_Class dataflash{"Replay v0.1"};
 
 private:
     Parameters g;
@@ -106,7 +106,7 @@ ReplayVehicle replayvehicle;
 #define GOBJECT(v, name, class) { AP_PARAM_GROUP, name, Parameters::k_param_ ## v, &replayvehicle.v, {group_info : class::var_info} }
 #define GOBJECTN(v, pname, name, class) { AP_PARAM_GROUP, name, Parameters::k_param_ ## pname, &replayvehicle.v, {group_info : class::var_info} }
 
-const AP_Param::Info ReplayVehicle::var_info[] PROGMEM = {
+const AP_Param::Info ReplayVehicle::var_info[] = {
     GSCALAR(dummy,         "_DUMMY", 0),
 
     // barometer ground calibration. The GND_ prefix is chosen for
@@ -131,6 +131,10 @@ const AP_Param::Info ReplayVehicle::var_info[] PROGMEM = {
     // @Path: ../libraries/AP_NavEKF/AP_NavEKF.cpp
     GOBJECTN(EKF, NavEKF, "EKF_", NavEKF),
 
+    // @Group: EK2_
+    // @Path: ../libraries/AP_NavEKF2/AP_NavEKF2.cpp
+    GOBJECTN(EKF2, NavEKF2, "EK2_", NavEKF2),
+    
     // @Group: COMPASS_
     // @Path: ../libraries/AP_Compass/AP_Compass.cpp
     GOBJECT(compass, "COMPASS_", Compass),
@@ -142,7 +146,7 @@ const AP_Param::Info ReplayVehicle::var_info[] PROGMEM = {
 void ReplayVehicle::load_parameters(void)
 {
     if (!AP_Param::check_var_info()) {
-        hal.scheduler->panic(PSTR("Bad parameter table"));
+        AP_HAL::panic("Bad parameter table");
     }
 }
 
@@ -168,7 +172,7 @@ enum {
     LOG_CHEK_MSG=100
 };
 
-static const struct LogStructure log_structure[] PROGMEM = {
+static const struct LogStructure log_structure[] = {
     LOG_COMMON_STRUCTURES,
     { LOG_CHEK_MSG, sizeof(log_Chek),
       "CHEK", "QccCLLffff",  "TimeUS,Roll,Pitch,Yaw,Lat,Lng,Alt,VN,VE,VD" }
@@ -176,6 +180,8 @@ static const struct LogStructure log_structure[] PROGMEM = {
 
 void ReplayVehicle::setup(void) 
 {
+    load_parameters();
+    
     // we pass zero log structures, as we will be outputting the log
     // structures we need manually, to prevent FMT duplicates
     dataflash.Init(log_structure, 0);
@@ -186,7 +192,8 @@ void ReplayVehicle::setup(void)
     ahrs.set_wind_estimation(true);
     ahrs.set_correct_centrifugal(true);
     ahrs.set_ekf_use(true);
-
+    EKF2.set_enable(true);
+                        
     printf("Starting disarmed\n");
     hal.util->set_soft_armed(false);
 
@@ -197,14 +204,15 @@ void ReplayVehicle::setup(void)
     ins.set_hil_mode();
 }
 
-class Replay {
+class Replay : public AP_HAL::HAL::Callbacks {
 public:
-    void setup();
-    void loop();
-
     Replay(ReplayVehicle &vehicle) :
         filename("log.bin"),
         _vehicle(vehicle) { }
+
+    // HAL::Callbacks implementation.
+    void setup() override;
+    void loop() override;
 
     void flush_dataflash(void);
 
@@ -224,7 +232,7 @@ private:
     ReplayVehicle &_vehicle;
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    SITL sitl;
+    SITL::SITL sitl;
 #endif
 
     LogReader logreader{_vehicle.ahrs, _vehicle.ins, _vehicle.barometer, _vehicle.compass, _vehicle.gps, _vehicle.airspeed, _vehicle.dataflash, log_structure, ARRAY_SIZE(log_structure), nottypes};
@@ -271,6 +279,7 @@ private:
     } user_parameters[100];
 
     void set_ins_update_rate(uint16_t update_rate);
+    void inhibit_gyro_cal();
 
     void usage(void);
     void set_user_parameters(void);
@@ -453,14 +462,15 @@ public:
     bool handle_log_format_msg(const struct log_Format &f);
     bool handle_msg(const struct log_Format &f, uint8_t *msg);
 
-    uint64_t last_imu_timestamp;
+    uint64_t last_clock_timestamp;
 private:
     MsgHandler *handler;
 };
 
 bool IMUCounter::handle_log_format_msg(const struct log_Format &f) {
-    if (!strncmp(f.name,"IMU",4)) {
-        // an IMU message
+    if (!strncmp(f.name,"IMU",4) ||
+        !strncmp(f.name,"IMT",4)) {
+        // an IMU or IMT message message
         handler = new MsgHandler(f);
     }
 
@@ -468,16 +478,17 @@ bool IMUCounter::handle_log_format_msg(const struct log_Format &f) {
 };
 
 bool IMUCounter::handle_msg(const struct log_Format &f, uint8_t *msg) {
-    if (strncmp(f.name,"IMU",4)) {
+    if (strncmp(f.name,"IMU",4) &&
+        strncmp(f.name,"IMT",4)) {
         // not an IMU message
         return true;
     }
 
-    if (handler->field_value(msg, "TimeUS", last_imu_timestamp)) {
-    } else if (handler->field_value(msg, "TimeMS", last_imu_timestamp)) {
-        last_imu_timestamp *= 1000;
+    if (handler->field_value(msg, "TimeUS", last_clock_timestamp)) {
+    } else if (handler->field_value(msg, "TimeMS", last_clock_timestamp)) {
+        last_clock_timestamp *= 1000;
     } else {
-        ::printf("Unable to find timestamp in IMU message");
+        ::printf("Unable to find timestamp in message");
     }
     return true;
 }
@@ -492,32 +503,51 @@ bool Replay::find_log_info(struct log_information &info)
         perror(filename);
         exit(1);
     }
+    char clock_source[5] = { };
     int samplecount = 0;
     uint64_t prev = 0;
     uint64_t smallest_delta = 0;
     prev = 0;
-    while (samplecount < 1000) {
+    const uint16_t samples_required = 1000;
+    while (samplecount < samples_required) {
         char type[5];
         if (!reader.update(type)) {
             break;
         }
-        if (streq(type, "IMU")) {
-            if (prev == 0) {
-                prev = reader.last_imu_timestamp;
+
+        if (strlen(clock_source) == 0) {
+            // If you want to add a clock source, also add it to
+            // handle_msg and handle_log_format_msg, above.  Note that
+            // ordering is important here.  For example, when we log
+            // IMT we may reduce the logging speed of IMU, so then
+            // using IMU as your clock source will lead to incorrect
+            // behaviour.
+            if (streq(type, "IMT")) {
+                memcpy(clock_source, "IMT", 3);
+            } else if (streq(type, "IMU")) {
+                memcpy(clock_source, "IMU", 3);
             } else {
-                uint64_t delta = reader.last_imu_timestamp - prev;
+                continue;
+            }
+        }
+        if (streq(type, clock_source)) {
+            if (prev == 0) {
+                prev = reader.last_clock_timestamp;
+            } else {
+                uint64_t delta = reader.last_clock_timestamp - prev;
                 if (smallest_delta == 0 || delta < smallest_delta) {
                     smallest_delta = delta;
                 }
                 samplecount++;
             }
         }
+
         if (streq(type, "IMU2") && !info.have_imu2) {
             info.have_imu2 = true;
         }
     }
     if (smallest_delta == 0) {
-        ::printf("Unable to determine log rate - insufficient IMU messages?!");
+        ::printf("Unable to determine log rate - insufficient IMU/IMT messages? (need=%d got=%d)", samples_required, samplecount);
         return false;
     }
 
@@ -581,6 +611,8 @@ void Replay::setup()
     }
 
     _vehicle.setup();
+
+    inhibit_gyro_cal();
     set_ins_update_rate(log_info.update_rate);
 
     feenableexcept(FE_INVALID | FE_OVERFLOW);
@@ -602,25 +634,22 @@ void Replay::setup()
 }
 
 void Replay::set_ins_update_rate(uint16_t _update_rate) {
-    switch (_update_rate) {
-    case 50:
-        _vehicle.ins.init(AP_InertialSensor::WARM_START, AP_InertialSensor::RATE_50HZ);
-        break;
-    case 100:
-        _vehicle.ins.init(AP_InertialSensor::WARM_START, AP_InertialSensor::RATE_100HZ);
-        break;
-    case 200:
-        _vehicle.ins.init(AP_InertialSensor::WARM_START, AP_InertialSensor::RATE_200HZ);
-        break;
-    case 400:
-        _vehicle.ins.init(AP_InertialSensor::WARM_START, AP_InertialSensor::RATE_400HZ);
-        break;
-    default:
-        printf("Invalid update rate (%d); use 50, 100, 200 or 400\n", _update_rate);
-        exit(1);
-    }
+    _vehicle.ins.init(_update_rate);
 }
 
+void Replay::inhibit_gyro_cal() {
+    // swiped from LR_MsgHandler.cpp; until we see PARM messages, we
+    // don't have a PARM handler available to set parameters.
+    enum ap_var_type var_type;
+    AP_Param *vp = AP_Param::find("INS_GYR_CAL", &var_type);
+    if (vp == NULL) {
+        ::fprintf(stderr, "No GYR_CAL parameter found\n");
+        abort();
+    }
+    ((AP_Float *)vp)->set(AP_InertialSensor::GYRO_CAL_NEVER);
+
+    // logreader.set_parameter("GYR_CAL", AP_InertialSensor::GYRO_CAL_NEVER);
+}
 
 /*
   setup user -p parameters
@@ -656,7 +685,7 @@ void Replay::read_sensors(const char *type)
                      loc.lat * 1.0e-7f, 
                      loc.lng * 1.0e-7f,
                      loc.alt * 0.01f,
-                     hal.scheduler->millis()*0.001f);
+                     AP_HAL::millis()*0.001f);
             _vehicle.ahrs.set_home(loc);
             _vehicle.compass.set_initial_location(loc.lat, loc.lng);
             done_home_init = true;
@@ -731,7 +760,7 @@ void Replay::read_sensors(const char *type)
             ahrs_healthy = _vehicle.ahrs.healthy();
             printf("AHRS health: %u at %lu\n", 
                    (unsigned)ahrs_healthy,
-                   (unsigned long)hal.scheduler->millis());
+                   (unsigned long)AP_HAL::millis());
         }
         if (check_generate) {
             log_check_generate();
@@ -757,7 +786,7 @@ void Replay::log_check_generate(void)
 
     struct log_Chek packet = {
         LOG_PACKET_HEADER_INIT(LOG_CHEK_MSG),
-        time_us : hal.scheduler->micros64(),
+        time_us : AP_HAL::micros64(),
         roll    : (int16_t)(100*degrees(euler.x)), // roll angle (centi-deg, displayed as deg due to format string)
         pitch   : (int16_t)(100*degrees(euler.y)), // pitch angle (centi-deg, displayed as deg due to format string)
         yaw     : (uint16_t)wrap_360_cd(100*degrees(euler.z)), // yaw angle (centi-deg, displayed as deg due to format string)
@@ -793,11 +822,11 @@ void Replay::log_check_solution(void)
     float vel_error = (velocity - check_state.velocity).length();
     float pos_error = get_distance(check_state.pos, loc);
 
-    check_result.max_roll_error  = max(check_result.max_roll_error,  roll_error);
-    check_result.max_pitch_error = max(check_result.max_pitch_error, pitch_error);
-    check_result.max_yaw_error   = max(check_result.max_yaw_error,   yaw_error);
-    check_result.max_vel_error   = max(check_result.max_vel_error,   vel_error);
-    check_result.max_pos_error   = max(check_result.max_pos_error,   pos_error);
+    check_result.max_roll_error  = MAX(check_result.max_roll_error,  roll_error);
+    check_result.max_pitch_error = MAX(check_result.max_pitch_error, pitch_error);
+    check_result.max_yaw_error   = MAX(check_result.max_yaw_error,   yaw_error);
+    check_result.max_vel_error   = MAX(check_result.max_vel_error,   vel_error);
+    check_result.max_pos_error   = MAX(check_result.max_pos_error,   pos_error);
 }
 
 
@@ -806,15 +835,15 @@ void Replay::loop()
     while (true) {
         char type[5];
 
-        if (arm_time_ms >= 0 && hal.scheduler->millis() > (uint32_t)arm_time_ms) {
+        if (arm_time_ms >= 0 && AP_HAL::millis() > (uint32_t)arm_time_ms) {
             if (!hal.util->get_soft_armed()) {
                 hal.util->set_soft_armed(true);
-                ::printf("Arming at %u ms\n", (unsigned)hal.scheduler->millis());
+                ::printf("Arming at %u ms\n", (unsigned)AP_HAL::millis());
             }
         }
 
         if (!logreader.update(type)) {
-            ::printf("End of log at %.1f seconds\n", hal.scheduler->millis()*0.001f);
+            ::printf("End of log at %.1f seconds\n", AP_HAL::millis()*0.001f);
             fclose(plotf);
             break;
         }
@@ -845,7 +874,7 @@ void Replay::loop()
             Vector2f offset;
             uint8_t faultStatus;
 
-            const Matrix3f &dcm_matrix = _vehicle.ahrs.AP_AHRS_DCM::get_dcm_matrix();
+            const Matrix3f &dcm_matrix = _vehicle.ahrs.AP_AHRS_DCM::get_rotation_body_to_ned();
             dcm_matrix.to_euler(&DCM_attitude.x, &DCM_attitude.y, &DCM_attitude.z);
             _vehicle.EKF.getEulerAngles(ekf_euler);
             _vehicle.EKF.getVelNED(velNED);
@@ -865,7 +894,7 @@ void Replay::loop()
 
             if (temp < 0.0f) temp = temp + 360.0f;
             fprintf(plotf, "%.3f %.1f %.1f %.1f %.2f %.1f %.1f %.1f %.2f %.2f %.2f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.2f %.2f %.2f %.2f %.2f %.2f\n",
-                    hal.scheduler->millis() * 0.001f,
+                    AP_HAL::millis() * 0.001f,
                     logreader.get_sim_attitude().x,
                     logreader.get_sim_attitude().y,
                     logreader.get_sim_attitude().z,
@@ -892,7 +921,7 @@ void Replay::loop()
                     ekf_relpos.y,
                     -ekf_relpos.z);
             fprintf(plotf2, "%.3f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f\n",
-                    hal.scheduler->millis() * 0.001f,
+                    AP_HAL::millis() * 0.001f,
                     degrees(ekf_euler.x),
                     degrees(ekf_euler.y),
                     temp,
@@ -933,8 +962,8 @@ void Replay::loop()
 
             // print EKF1 data packet
             fprintf(ekf1f, "%.3f %u %d %d %u %.2f %.2f %.2f %.2f %.2f %.2f %.0f %.0f %.0f\n",
-                    hal.scheduler->millis() * 0.001f,
-                    hal.scheduler->millis(),
+                    AP_HAL::millis() * 0.001f,
+                    AP_HAL::millis(),
                     roll, 
                     pitch, 
                     yaw, 
@@ -963,8 +992,8 @@ void Replay::loop()
 
             // print EKF2 data packet
             fprintf(ekf2f, "%.3f %d %d %d %d %d %d %d %d %d %d %d %d\n",
-                    hal.scheduler->millis() * 0.001f,
-                    hal.scheduler->millis(),
+                    AP_HAL::millis() * 0.001f,
+                    AP_HAL::millis(),
                     accWeight, 
                     acc1, 
                     acc2, 
@@ -991,8 +1020,8 @@ void Replay::loop()
 
             // print EKF3 data packet
             fprintf(ekf3f, "%.3f %d %d %d %d %d %d %d %d %d %d %d\n",
-                    hal.scheduler->millis() * 0.001f,
-                    hal.scheduler->millis(),
+                    AP_HAL::millis() * 0.001f,
+                    AP_HAL::millis(),
                     innovVN, 
                     innovVE, 
                     innovVD, 
@@ -1017,8 +1046,8 @@ void Replay::loop()
 
             // print EKF4 data packet
             fprintf(ekf4f, "%.3f %u %d %d %d %d %d %d %d %d %d %d\n",
-                    hal.scheduler->millis() * 0.001f,
-                    (unsigned)hal.scheduler->millis(),
+                    AP_HAL::millis() * 0.001f,
+                    (unsigned)AP_HAL::millis(),
                     (int)sqrtvarV,
                     (int)sqrtvarP,
                     (int)sqrtvarH,
@@ -1085,19 +1114,4 @@ void Replay::report_checks(void)
     }
 }
 
-/*
-  compatibility with old pde style build
- */
-void setup(void);
-void loop(void);
-
-void setup(void)
-{
-    replay.setup();
-}
-void loop(void)
-{
-    replay.loop();
-}
-
-AP_HAL_MAIN();
+AP_HAL_MAIN_CALLBACKS(&replay);

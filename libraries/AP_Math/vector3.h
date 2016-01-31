@@ -161,6 +161,7 @@ public:
 
     // rotate by a standard rotation
     void rotate(enum Rotation rotation);
+    void rotate_inverse(enum Rotation rotation);
 
     // gets the length of this vector squared
     T  length_squared() const
@@ -217,8 +218,6 @@ typedef Vector3<uint16_t>               Vector3ui;
 typedef Vector3<int32_t>                Vector3l;
 typedef Vector3<uint32_t>               Vector3ul;
 typedef Vector3<float>                  Vector3f;
-#if HAL_CPU_CLASS >= HAL_CPU_CLASS_75
-    typedef Vector3<double>                 Vector3d;
-#endif
+typedef Vector3<double>                 Vector3d;
 
 #endif // VECTOR3_H

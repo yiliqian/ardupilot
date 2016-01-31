@@ -3,22 +3,11 @@
 #define AP_BATTMONITOR_ANALOG_H
 
 #include <AP_ADC/AP_ADC.h>                 // ArduPilot Mega Analog to Digital Converter Library
-#include <AP_ADC_AnalogSource/AP_ADC_AnalogSource.h>
 #include "AP_BattMonitor.h"
 #include "AP_BattMonitor_Backend.h"
 
 // default pins and dividers
-#if CONFIG_HAL_BOARD == HAL_BOARD_APM1
- # define AP_BATT_VOLT_PIN                  0       // Battery voltage on A0
- # define AP_BATT_CURR_PIN                  1       // Battery current on A1
- # define AP_BATT_VOLTDIVIDER_DEFAULT       3.56f   // on-board APM1 voltage divider with a 3.9kOhm resistor
- # define AP_BATT_CURR_AMP_PERVOLT_DEFAULT  0
-#elif CONFIG_HAL_BOARD == HAL_BOARD_APM2
- # define AP_BATT_VOLT_PIN                  13      // APM2.5/2.6 with 3dr power module
- # define AP_BATT_CURR_PIN                  12
- # define AP_BATT_VOLTDIVIDER_DEFAULT       10.1f
- # define AP_BATT_CURR_AMP_PERVOLT_DEFAULT  17.0f
-#elif CONFIG_HAL_BOARD == HAL_BOARD_FLYMAPLE
+#if CONFIG_HAL_BOARD == HAL_BOARD_FLYMAPLE
 // Flymaple board pin 20 is connected to the external battery supply
 // via a 24k/5.1k voltage divider. The schematic claims the divider is 25k/5k,
 // but the actual installed resistors are not so.
@@ -33,7 +22,7 @@
  # define AP_BATT_CURR_PIN                  101
  # define AP_BATT_VOLTDIVIDER_DEFAULT       1.1f
  # define AP_BATT_CURR_AMP_PERVOLT_DEFAULT  17.0f
-#elif CONFIG_HAL_BOARD == HAL_BOARD_PX4 && defined(CONFIG_ARCH_BOARD_PX4FMU_V2)
+#elif CONFIG_HAL_BOARD == HAL_BOARD_PX4 && (defined(CONFIG_ARCH_BOARD_PX4FMU_V2) || defined(CONFIG_ARCH_BOARD_PX4FMU_V4))
  // pixhawk
  # define AP_BATT_VOLT_PIN                  2
  # define AP_BATT_CURR_PIN                  3
@@ -67,6 +56,19 @@
  # define AP_BATT_CURR_PIN                  101
  # define AP_BATT_VOLTDIVIDER_DEFAULT       1.1f
  # define AP_BATT_CURR_AMP_PERVOLT_DEFAULT  17.0f
+
+#elif CONFIG_HAL_BOARD == HAL_BOARD_LINUX &&  (CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_ERLE || CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_PXF)
+ # define AP_BATT_VOLT_PIN                  5
+ # define AP_BATT_CURR_PIN                  6
+ # define AP_BATT_VOLTDIVIDER_DEFAULT       10.1f
+ # define AP_BATT_CURR_AMP_PERVOLT_DEFAULT  17.0f
+
+#elif CONFIG_HAL_BOARD == HAL_BOARD_LINUX && CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BBBMINI
+ # define AP_BATT_VOLT_PIN                  0
+ # define AP_BATT_CURR_PIN                  1
+ # define AP_BATT_VOLTDIVIDER_DEFAULT       10.1f
+ # define AP_BATT_CURR_AMP_PERVOLT_DEFAULT  17.0f
+
 #else
  # define AP_BATT_VOLT_PIN                  -1
  # define AP_BATT_CURR_PIN                  -1

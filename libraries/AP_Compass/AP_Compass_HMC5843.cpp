@@ -23,7 +23,6 @@
  *
  */
 
-// AVR LibC Includes
 #include <AP_Math/AP_Math.h>
 #include <AP_HAL/AP_HAL.h>
 
@@ -120,7 +119,7 @@ AP_Compass_Backend *AP_Compass_HMC5843::_detect(Compass &compass,
 bool AP_Compass_HMC5843::read_register(uint8_t address, uint8_t *value)
 {
     if (_bus->register_read(address, value) != 0) {
-        _retry_time = hal.scheduler->millis() + 1000;
+        _retry_time = AP_HAL::millis() + 1000;
         return false;
     }
     return true;
@@ -130,7 +129,7 @@ bool AP_Compass_HMC5843::read_register(uint8_t address, uint8_t *value)
 bool AP_Compass_HMC5843::write_register(uint8_t address, uint8_t value)
 {
     if (_bus->register_write(address, value) != 0) {
-        _retry_time = hal.scheduler->millis() + 1000;
+        _retry_time = AP_HAL::millis() + 1000;
         return false;
     }
     return true;
@@ -143,7 +142,7 @@ bool AP_Compass_HMC5843::read_raw()
 
     if (_bus->read_raw(&rv) != 0) {
         _bus->set_high_speed(false);
-        _retry_time = hal.scheduler->millis() + 1000;
+        _retry_time = AP_HAL::millis() + 1000;
         return false;
     }
 
@@ -179,7 +178,7 @@ void AP_Compass_HMC5843::accumulate(void)
         return;
     }
 
-   uint32_t tnow = hal.scheduler->micros();
+   uint32_t tnow = AP_HAL::micros();
    if (_accum_count != 0 && (tnow - _last_accum_time) < 13333) {
 	  // the compass gets new data at 75Hz
 	  return;
@@ -200,6 +199,7 @@ void AP_Compass_HMC5843::accumulate(void)
 	  // accumulate more than 8 before a read
        // get raw_field - sensor frame, uncorrected
        Vector3f raw_field = Vector3f(_mag_x, _mag_y, _mag_z);
+       raw_field *= _gain_multiple;
 
        // rotate raw_field from sensor frame to body frame
        rotate_field(raw_field, _compass_instance);
@@ -269,23 +269,23 @@ AP_Compass_HMC5843::init()
     uint8_t calibration_gain = 0x20;
     uint16_t expected_x = 715;
     uint16_t expected_yz = 715;
-    _gain_multiple = 1.0;
+    _gain_multiple = (1.0f / 1300) * 1000;
 
     _bus_sem = _bus->get_semaphore();
     hal.scheduler->suspend_timer_procs();
 
     if (!_bus_sem || !_bus_sem->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
-        hal.console->printf_P(PSTR("HMC5843: Unable to get bus semaphore\n"));
+        hal.console->printf("HMC5843: Unable to get bus semaphore\n");
         goto fail_sem;
     }
 
     if (!_bus->configure()) {
-        hal.console->printf_P(PSTR("HMC5843: Could not configure the bus\n"));
+        hal.console->printf("HMC5843: Could not configure the bus\n");
         goto errout;
     }
 
     if (!_detect_version()) {
-        hal.console->printf_P(PSTR("HMC5843: Could not detect version\n"));
+        hal.console->printf("HMC5843: Could not detect version\n");
         goto errout;
     }
 
@@ -298,11 +298,11 @@ AP_Compass_HMC5843::init()
          */
         expected_x = 766;
         expected_yz  = 713;
-        _gain_multiple = 660.0f / 1090;  // adjustment for runtime vs calibration gain
+        _gain_multiple = (1.0f / 1090) * 1000;
     }
 
     if (!_calibrate(calibration_gain, expected_x, expected_yz)) {
-        hal.console->printf_P(PSTR("HMC5843: Could not calibrate sensor\n"));
+        hal.console->printf("HMC5843: Could not calibrate sensor\n");
         goto errout;
     }
 
@@ -312,7 +312,7 @@ AP_Compass_HMC5843::init()
     }
 
     if (!_bus->start_measurements()) {
-        hal.console->printf_P(PSTR("HMC5843: Could not start measurements on bus\n"));
+        hal.console->printf("HMC5843: Could not start measurements on bus\n");
         goto errout;
     }
     _initialised = true;
@@ -324,14 +324,12 @@ AP_Compass_HMC5843::init()
     read();
 
 #if 0
-    hal.console->printf_P(PSTR("CalX: %.2f CalY: %.2f CalZ: %.2f\n"),
+    hal.console->printf("CalX: %.2f CalY: %.2f CalZ: %.2f\n",
                           _scaling[0], _scaling[1], _scaling[2]);
 #endif
 
     _compass_instance = register_compass();
     set_dev_id(_compass_instance, _product_id);
-
-    set_milligauss_ratio(_compass_instance, 1.0f / _gain_multiple);
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_LINUX && CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_RASPILOT
     set_external(_compass_instance, true);
@@ -377,13 +375,13 @@ bool AP_Compass_HMC5843::_calibrate(uint8_t calibration_gain,
 
         float cal[3];
 
-        // hal.console->printf_P(PSTR("mag %d %d %d\n"), _mag_x, _mag_y, _mag_z);
+        // hal.console->printf("mag %d %d %d\n", _mag_x, _mag_y, _mag_z);
 
         cal[0] = fabsf(expected_x / (float)_mag_x);
         cal[1] = fabsf(expected_yz / (float)_mag_y);
         cal[2] = fabsf(expected_yz / (float)_mag_z);
 
-        // hal.console->printf_P(PSTR("cal=%.2f %.2f %.2f\n"), cal[0], cal[1], cal[2]);
+        // hal.console->printf("cal=%.2f %.2f %.2f\n", cal[0], cal[1], cal[2]);
 
         // we throw away the first two samples as the compass may
         // still be changing its state from the application of the
@@ -399,7 +397,7 @@ bool AP_Compass_HMC5843::_calibrate(uint8_t calibration_gain,
         if (IS_CALIBRATION_VALUE_VALID(cal[0]) &&
             IS_CALIBRATION_VALUE_VALID(cal[1]) &&
             IS_CALIBRATION_VALUE_VALID(cal[2])) {
-            // hal.console->printf_P(PSTR("car=%.2f %.2f %.2f good\n"), cal[0], cal[1], cal[2]);
+            // hal.console->printf("car=%.2f %.2f %.2f good\n", cal[0], cal[1], cal[2]);
             good_count++;
 
             _scaling[0] += cal[0];
@@ -411,26 +409,15 @@ bool AP_Compass_HMC5843::_calibrate(uint8_t calibration_gain,
 
 #if 0
         /* useful for debugging */
-        hal.console->printf_P(PSTR("MagX: %d MagY: %d MagZ: %d\n"), (int)_mag_x, (int)_mag_y, (int)_mag_z);
-        hal.console->printf_P(PSTR("CalX: %.2f CalY: %.2f CalZ: %.2f\n"), cal[0], cal[1], cal[2]);
+        hal.console->printf("MagX: %d MagY: %d MagZ: %d\n", (int)_mag_x, (int)_mag_y, (int)_mag_z);
+        hal.console->printf("CalX: %.2f CalY: %.2f CalZ: %.2f\n", cal[0], cal[1], cal[2]);
 #endif
     }
 
     if (good_count >= 5) {
-        /*
-          The use of _gain_multiple below is incorrect, as the gain
-          difference between 2.5Ga mode and 1Ga mode is already taken
-          into account by the expected_x and expected_yz values.  We
-          are not going to fix it however as it would mean all
-          APM1/APM2 users redoing their compass calibration. The
-          impact is that the values we report on APM1/APM2 are lower
-          than they should be (by a multiple of about 0.6). This
-          doesn't have any impact other than the learned compass
-          offsets
-         */
-        _scaling[0] = _scaling[0] * _gain_multiple / good_count;
-        _scaling[1] = _scaling[1] * _gain_multiple / good_count;
-        _scaling[2] = _scaling[2] * _gain_multiple / good_count;
+        _scaling[0] = _scaling[0] / good_count;
+        _scaling[1] = _scaling[1] / good_count;
+        _scaling[2] = _scaling[2] / good_count;
         success = true;
     } else {
         /* best guess */
@@ -452,11 +439,11 @@ void AP_Compass_HMC5843::read()
         return;
     }
     if (_retry_time != 0) {
-        if (hal.scheduler->millis() < _retry_time) {
+        if (AP_HAL::millis() < _retry_time) {
             return;
         }
         if (!re_initialise()) {
-            _retry_time = hal.scheduler->millis() + 1000;
+            _retry_time = AP_HAL::millis() + 1000;
             _bus->set_high_speed(false);
             return;
         }
@@ -526,7 +513,7 @@ AP_HMC5843_SerialBus_MPU6000::AP_HMC5843_SerialBus_MPU6000(AP_InertialSensor &in
 {
     // Only initialize members. Fails are handled by configure or while
     // getting the semaphore
-    _bus = ins.get_auxiliar_bus(HAL_INS_MPU60XX_SPI);
+    _bus = ins.get_auxiliary_bus(HAL_INS_MPU60XX_SPI);
     if (!_bus)
         return;
     _slave = _bus->request_next_slave(addr);

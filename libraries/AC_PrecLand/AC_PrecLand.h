@@ -12,6 +12,7 @@
 #define PRECLAND_P                              2.0f    // velocity controller P gain default
 #define PRECLAND_I                              1.0f    // velocity controller I gain default
 #define PRECLAND_IMAX                         500.0f    // velocity controller IMAX default
+#define PRECLAND_FILT_HZ                        5.0f    // velocity controller filter hz
 #define PRECLAND_UPDATE_TIME                    0.02f   // precland runs at 50hz
 
 // declare backend classes
@@ -43,7 +44,7 @@ public:
     };
 
     // Constructor
-    AC_PrecLand(const AP_AHRS& ahrs, const AP_InertialNav& inav, AC_PI_2D& pi_precland_xy, float dt);
+    AC_PrecLand(const AP_AHRS& ahrs, const AP_InertialNav& inav, float dt);
 
     // init - perform any required initialisation of landing controllers
     void init();
@@ -62,7 +63,7 @@ public:
 
     // accessors for logging
     bool enabled() const { return _enabled; }
-    const Vector2f& last_bf_angle_to_target() const { return _bf_angle_to_target; }
+    const Vector2f& last_bf_angle_to_target() const { return _angle_to_target; }
     const Vector2f& last_ef_angle_to_target() const { return _ef_angle_to_target; }
     const Vector3f& last_target_pos_offset() const { return _target_pos_offset; }
 
@@ -72,7 +73,7 @@ public:
 private:
 
     // calc_angles_and_pos - converts sensor's body-frame angles to earth-frame angles and position estimate
-    //  body-frame angles stored in _bf_angle_to_target
+    //  angles stored in _angle_to_target
     //  earth-frame angles stored in _ef_angle_to_target
     //  position estimate is stored in _target_pos
     void calc_angles_and_pos(float alt_above_terrain_cm);
@@ -83,7 +84,7 @@ private:
     // references to inertial nav and ahrs libraries
     const AP_AHRS&              _ahrs;
     const AP_InertialNav&       _inav;
-    AC_PI_2D&                   _pi_precland_xy;    // horizontal velocity PI controller
+    AC_PI_2D                    _pi_vel_xy;         // horizontal velocity PI controller
 
     // parameters
     AP_Int8                     _enabled;           // enabled/disabled and behaviour
@@ -94,7 +95,7 @@ private:
     float                       _dt;                // time difference (in seconds) between calls from the main program
 
     // output from sensor (stored for logging)
-    Vector2f                    _bf_angle_to_target;// last body-frame angle to target
+    Vector2f                    _angle_to_target;   // last raw sensor angle to target
     Vector2f                    _ef_angle_to_target;// last earth-frame angle to target
 
     // output from controller

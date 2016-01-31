@@ -29,27 +29,23 @@
 #define AP_COMPASS_MOT_COMP_CURRENT     0x02
 
 // setup default mag orientation for some board types
-#if CONFIG_HAL_BOARD == HAL_BOARD_APM1
-# define MAG_BOARD_ORIENTATION ROTATION_ROLL_180
-#elif CONFIG_HAL_BOARD == HAL_BOARD_LINUX && CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_RASPILOT
+#if CONFIG_HAL_BOARD == HAL_BOARD_LINUX && CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_RASPILOT
 # define MAG_BOARD_ORIENTATION ROTATION_ROLL_180
 #elif CONFIG_HAL_BOARD == HAL_BOARD_LINUX && CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BEBOP
 # define MAG_BOARD_ORIENTATION ROTATION_YAW_90
+#elif CONFIG_HAL_BOARD == HAL_BOARD_LINUX && (CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_ERLEBRAIN2 || \
+      CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_PXFMINI)
+# define MAG_BOARD_ORIENTATION ROTATION_YAW_270
 #else
 # define MAG_BOARD_ORIENTATION ROTATION_NONE
 #endif
 
 /**
    maximum number of compass instances available on this platform. If more
-   than 1 then redundent sensors may be available
+   than 1 then redundant sensors may be available
  */
-#if HAL_CPU_CLASS > HAL_CPU_CLASS_16
 #define COMPASS_MAX_INSTANCES 3
-#define COMPASS_MAX_BACKEND   3   
-#else
-#define COMPASS_MAX_INSTANCES 1
-#define COMPASS_MAX_BACKEND   1   
-#endif
+#define COMPASS_MAX_BACKEND   3
 
 //MAXIMUM COMPASS REPORTS
 #define MAX_CAL_REPORTS 10
@@ -92,14 +88,14 @@ public:
     /// Sets offset x/y/z values.
     ///
     /// @param  i                   compass instance
-    /// @param  offsets             Offsets to the raw mag_ values.
+    /// @param  offsets             Offsets to the raw mag_ values in milligauss.
     ///
     void set_offsets(uint8_t i, const Vector3f &offsets);
 
     /// Sets and saves the compass offset x/y/z values.
     ///
     /// @param  i                   compass instance
-    /// @param  offsets             Offsets to the raw mag_ values.
+    /// @param  offsets             Offsets to the raw mag_ values in milligauss.
     ///
     void set_and_save_offsets(uint8_t i, const Vector3f &offsets);
     void set_and_save_diagonals(uint8_t i, const Vector3f &diagonals);
@@ -118,11 +114,9 @@ public:
     // return the number of compass instances
     uint8_t get_count(void) const { return _compass_count; }
 
-    /// Return the current field as a Vector3f
+    /// Return the current field as a Vector3f in milligauss
     const Vector3f &get_field(uint8_t i) const { return _state[i].field; }
     const Vector3f &get_field(void) const { return get_field(get_primary()); }
-    const Vector3f get_field_milligauss(uint8_t i) const { return get_field(i) * _state[i].milligauss_ratio; }
-    const Vector3f get_field_milligauss(void) const { return get_field_milligauss(get_primary()); }
 
     // raw/unfiltered measurement interface
     uint32_t raw_meas_time_us(uint8_t i) const { return _state[i].raw_meas_time_us; }
@@ -180,12 +174,10 @@ public:
 
     /// Returns the current offset values
     ///
-    /// @returns                    The current compass offsets.
+    /// @returns                    The current compass offsets in milligauss.
     ///
     const Vector3f &get_offsets(uint8_t i) const { return _state[i].offset; }
     const Vector3f &get_offsets(void) const { return get_offsets(get_primary()); }
-    const Vector3f get_offsets_milligauss(uint8_t i) const { return get_offsets(i) * _state[i].milligauss_ratio; }
-    const Vector3f get_offsets_milligauss(void) const { return get_offsets_milligauss(get_primary()); }
 
     /// Sets the initial location used to get declination
     ///
@@ -197,9 +189,9 @@ public:
     /// Program new offset values.
     ///
     /// @param  i                   compass instance
-    /// @param  x                   Offset to the raw mag_x value.
-    /// @param  y                   Offset to the raw mag_y value.
-    /// @param  z                   Offset to the raw mag_z value.
+    /// @param  x                   Offset to the raw mag_x value in milligauss.
+    /// @param  y                   Offset to the raw mag_y value in milligauss.
+    /// @param  z                   Offset to the raw mag_z value in milligauss.
     ///
     void set_and_save_offsets(uint8_t i, int x, int y, int z) {
         set_and_save_offsets(i, Vector3f(x, y, z));
@@ -259,7 +251,7 @@ public:
 
     /// Returns the current motor compensation offset values
     ///
-    /// @returns                    The current compass offsets.
+    /// @returns                    The current compass offsets in milligauss.
     ///
     const Vector3f &get_motor_offsets(uint8_t i) const { return _state[i].motor_offset; }
     const Vector3f &get_motor_offsets(void) const { return get_motor_offsets(get_primary()); }
@@ -304,6 +296,7 @@ public:
 
     // return last update time in microseconds
     uint32_t last_update_usec(void) const { return _state[get_primary()].last_update_usec; }
+    uint32_t last_update_usec(uint8_t i) const { return _state[i].last_update_usec; }
 
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -376,12 +369,11 @@ private:
         AP_Vector3f diagonals;
         AP_Vector3f offdiagonals;
 
-#if COMPASS_MAX_INSTANCES > 1
-        // device id detected at init.  
+        // device id detected at init.
         // saved to eeprom when offsets are saved allowing ram &
         // eeprom values to be compared as consistency check
         AP_Int32    dev_id;
-#endif
+
         AP_Int8     use_for_yaw;
 
         uint8_t     mag_history_index;
@@ -395,7 +387,6 @@ private:
 
         // corrected magnetic field strength
         Vector3f    field;
-        float       milligauss_ratio;
 
         // when we last got data
         uint32_t    last_update_ms;
@@ -424,4 +415,6 @@ private:
 #include "AP_Compass_AK8963.h"
 #include "AP_Compass_PX4.h"
 #include "AP_Compass_LSM303D.h"
+#include "AP_Compass_qflight.h"
+#include "AP_Compass_QURT.h"
 #endif

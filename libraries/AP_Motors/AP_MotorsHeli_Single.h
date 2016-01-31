@@ -62,8 +62,8 @@ public:
         _swash_servo_2(servo_2),
         _swash_servo_3(servo_3),
         _yaw_servo(servo_4),
-        _main_rotor(servo_rsc, AP_MOTORS_HELI_SINGLE_RSC, loop_rate),
-        _tail_rotor(servo_aux, AP_MOTORS_HELI_SINGLE_AUX, loop_rate)
+        _main_rotor(RC_Channel_aux::k_heli_rsc, AP_MOTORS_HELI_SINGLE_RSC, loop_rate),
+        _tail_rotor(RC_Channel_aux::k_heli_tail_rsc, AP_MOTORS_HELI_SINGLE_AUX, loop_rate)
     {
         AP_Param::setup_object_defaults(this, var_info);
     };
@@ -80,9 +80,6 @@ public:
     //  pwm value is an actual pwm value that will be output, normally in the range of 1000 ~ 2000
     void output_test(uint8_t motor_seq, int16_t pwm);
 
-    // allow_arming - returns true if main rotor is spinning and it is ok to arm
-    bool allow_arming() const;
-
     // set_desired_rotor_speed - sets target rotor speed as a number from 0 ~ 1000
     void set_desired_rotor_speed(int16_t desired_speed);
 
@@ -98,6 +95,9 @@ public:
     // calculate_scalars - recalculates various scalars used
     void calculate_scalars();
 
+    // calculate_armed_scalars - recalculates scalars that can change while armed
+    void calculate_armed_scalars();
+    
     // get_motor_mask - returns a bitmask of which outputs are being used for motors or servos (1 means being used)
     //  this can be used to ensure other pwm outputs (i.e. for servos) do not conflict
     uint16_t get_motor_mask();
@@ -106,8 +106,8 @@ public:
     int16_t tail_type() const { return _tail_type; }
 
     // ext_gyro_gain - gets and sets external gyro gain as a pwm (1000~2000)
-    int16_t ext_gyro_gain() const { return _ext_gyro_gain; }
-    void ext_gyro_gain(int16_t pwm) { _ext_gyro_gain = pwm; }
+    int16_t ext_gyro_gain() const { return _ext_gyro_gain_std; }
+    void ext_gyro_gain(int16_t pwm) { _ext_gyro_gain_std = pwm; }
 
     // has_flybar - returns true if we have a mechical flybar
     bool has_flybar() const { return _flybar_mode; }
@@ -121,6 +121,14 @@ public:
     // set_delta_phase_angle for setting variable phase angle compensation and force
     // recalculation of collective factors
     void set_delta_phase_angle(int16_t angle);
+
+    void set_acro_tail(bool set) { _acro_tail = set; }
+
+    // servo_test - move servos through full range of movement
+    void servo_test();
+
+    // parameter_check - returns true if helicopter specific parameters are sensible, used for pre-arm check
+    bool parameter_check(bool display_msg) const;
     
     // var_info
     static const struct AP_Param::GroupInfo var_info[];
@@ -155,18 +163,28 @@ protected:
     AP_MotorsHeli_RSC   _main_rotor;            // main rotor
     AP_MotorsHeli_RSC   _tail_rotor;            // tail rotor
 
+    // internal variables
+    float _oscillate_angle = 0.0f;              // cyclic oscillation angle, used by servo_test function
+    float _servo_test_cycle_time = 0.0f;        // cycle time tracker, used by servo_test function
+    float _collective_test = 0.0f;              // over-ride for collective output, used by servo_test function
+    float _roll_test = 0.0f;                    // over-ride for roll output, used by servo_test function
+    float _pitch_test = 0.0f;                   // over-ride for pitch output, used by servo_test function
+    float _yaw_test = 0.0f;                     // over-ride for yaw output, used by servo_test function
+
     // parameters
     AP_Int16        _servo1_pos;                // Angular location of swash servo #1
     AP_Int16        _servo2_pos;                // Angular location of swash servo #2
     AP_Int16        _servo3_pos;                // Angular location of swash servo #3    
     AP_Int16        _tail_type;                 // Tail type used: Servo, Servo with external gyro, direct drive variable pitch or direct drive fixed pitch
     AP_Int8         _swash_type;                // Swash Type Setting - either 3-servo CCPM or H1 Mechanical Mixing
-    AP_Int16        _ext_gyro_gain;             // PWM sent to external gyro on ch7 when tail type is Servo w/ ExtGyro
+    AP_Int16        _ext_gyro_gain_std;         // PWM sent to external gyro on ch7 when tail type is Servo w/ ExtGyro
+    AP_Int16        _ext_gyro_gain_acro;        // PWM sent to external gyro on ch7 when tail type is Servo w/ ExtGyro in ACRO
     AP_Int16        _phase_angle;               // Phase angle correction for rotor head.  If pitching the swash forward induces a roll, this can be correct the problem
     AP_Float        _collective_yaw_effect;     // Feed-forward compensation to automatically add rudder input when collective pitch is increased. Can be positive or negative depending on mechanics.
     AP_Int8         _flybar_mode;               // Flybar present or not.  Affects attitude controller used during ACRO flight mode
     AP_Int16        _direct_drive_tailspeed;    // Direct Drive VarPitch Tail ESC speed (0 ~ 1000)
 
+    bool            _acro_tail = false;
 };
 
 #endif  // __AP_MOTORS_HELI_SINGLE_H__

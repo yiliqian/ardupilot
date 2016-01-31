@@ -2,12 +2,11 @@
 #include <AP_Common/AP_Common.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_Param/AP_Param.h>
-#include <AP_Progmem/AP_Progmem.h>
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_HAL_FLYMAPLE/AP_HAL_FLYMAPLE.h>
 
-const AP_HAL::HAL& hal = AP_HAL_BOARD_DRIVER;
+const AP_HAL::HAL& hal = AP_HAL::get_HAL();
 
 AP_HAL::DigitalSource *a_led;
 AP_HAL::DigitalSource *b_led;

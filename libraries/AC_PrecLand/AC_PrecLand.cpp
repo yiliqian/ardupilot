@@ -7,7 +7,8 @@
 
 extern const AP_HAL::HAL& hal;
 
-const AP_Param::GroupInfo AC_PrecLand::var_info[] PROGMEM = {
+const AP_Param::GroupInfo AC_PrecLand::var_info[] = {
+    // @Param: ENABLED
     // @DisplayName: Precision Land enabled/disabled and behaviour
     // @Description: Precision Land enabled/disabled and behaviour
     // @Values: 0:Disabled, 1:Enabled Always Land, 2:Enabled Strict
@@ -28,6 +29,26 @@ const AP_Param::GroupInfo AC_PrecLand::var_info[] PROGMEM = {
     // @User: Advanced
     AP_GROUPINFO("SPEED",   2, AC_PrecLand, _speed_xy, AC_PRECLAND_SPEED_XY_DEFAULT),
 
+     // @Param: VEL_P
+     // @DisplayName: Precision landing velocity controller P gain
+     // @Description: Precision landing velocity controller P gain
+     // @Range: 0.100 5.000
+     // @User: Advanced
+
+     // @Param: VEL_I
+     // @DisplayName: Precision landing velocity controller I gain
+     // @Description: Precision landing velocity controller I gain
+     // @Range: 0.100 5.000
+     // @User: Advanced
+
+     // @Param: VEL_IMAX
+     // @DisplayName: Precision landing velocity controller I gain maximum
+     // @Description: Precision landing velocity controller I gain maximum
+     // @Range: 0 1000
+     // @Units: cm/s
+     // @User: Standard
+     AP_SUBGROUPINFO(_pi_vel_xy, "VEL_", 3, AC_PrecLand, AC_PI_2D),
+
     AP_GROUPEND
 };
 
@@ -35,11 +56,10 @@ const AP_Param::GroupInfo AC_PrecLand::var_info[] PROGMEM = {
 // Note that the Vector/Matrix constructors already implicitly zero
 // their values.
 //
-AC_PrecLand::AC_PrecLand(const AP_AHRS& ahrs, const AP_InertialNav& inav,
-                         AC_PI_2D& pi_precland_xy, float dt) :
+AC_PrecLand::AC_PrecLand(const AP_AHRS& ahrs, const AP_InertialNav& inav, float dt) :
     _ahrs(ahrs),
     _inav(inav),
-    _pi_precland_xy(pi_precland_xy),
+    _pi_vel_xy(PRECLAND_P, PRECLAND_I, PRECLAND_IMAX, PRECLAND_FILT_HZ, dt),
     _dt(dt),
     _have_estimate(false),
     _backend(NULL)
@@ -124,7 +144,7 @@ Vector3f AC_PrecLand::get_target_shift(const Vector3f &orig_target)
 }
 
 // calc_angles_and_pos - converts sensor's body-frame angles to earth-frame angles and position estimate
-//  body-frame angles stored in _bf_angle_to_target
+//  raw sensor angles stored in _angle_to_target (might be in earth frame, or maybe body frame)
 //  earth-frame angles stored in _ef_angle_to_target
 //  position estimate is stored in _target_pos
 void AC_PrecLand::calc_angles_and_pos(float alt_above_terrain_cm)
@@ -135,22 +155,31 @@ void AC_PrecLand::calc_angles_and_pos(float alt_above_terrain_cm)
         return;
     }
 
-    // get body-frame angles to target from backend
-    if (!_backend->get_angle_to_target(_bf_angle_to_target.x, _bf_angle_to_target.y)) {
+    // get angles to target from backend
+    if (!_backend->get_angle_to_target(_angle_to_target.x, _angle_to_target.y)) {
         _have_estimate = false;
         return;
     }
 
-    // subtract vehicle lean angles
-    float x_rad = _bf_angle_to_target.x - _ahrs.roll;
-    float y_rad = -_bf_angle_to_target.y + _ahrs.pitch;
+    float x_rad;
+    float y_rad;
+
+    if(_backend->get_frame_of_reference() == MAV_FRAME_LOCAL_NED){
+        //don't subtract vehicle lean angles
+        x_rad = _angle_to_target.x;
+        y_rad = -_angle_to_target.y;
+    }else{ // assume MAV_FRAME_BODY_NED (i.e. a hard-mounted sensor)
+        // subtract vehicle lean angles
+        x_rad = _angle_to_target.x - _ahrs.roll;
+        y_rad = -_angle_to_target.y + _ahrs.pitch;
+    }
 
     // rotate to earth-frame angles
     _ef_angle_to_target.x = y_rad*_ahrs.cos_yaw() - x_rad*_ahrs.sin_yaw();
     _ef_angle_to_target.y = y_rad*_ahrs.sin_yaw() + x_rad*_ahrs.cos_yaw();
 
     // get current altitude (constrained to no lower than 50cm)
-    float alt = max(alt_above_terrain_cm, 50.0f);
+    float alt = MAX(alt_above_terrain_cm, 50.0f);
 
     // convert earth-frame angles to earth-frame position offset
     _target_pos_offset.x = alt*tanf(_ef_angle_to_target.x);

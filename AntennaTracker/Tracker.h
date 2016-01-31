@@ -1,7 +1,7 @@
 /// -*- tab-width: 4; Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*-
 
-#define THISFIRMWARE "AntennaTracker V0.7.3"
-#define FIRMWARE_VERSION 0,7,3,FIRMWARE_VERSION_TYPE_DEV
+#define THISFIRMWARE "AntennaTracker V0.7.5"
+#define FIRMWARE_VERSION 0,7,5,FIRMWARE_VERSION_TYPE_DEV
 
 /*
    Lead developers: Matthew Ridley and Andrew Tridgell
@@ -31,7 +31,6 @@
 #include <stdio.h>
 
 #include <AP_Common/AP_Common.h>
-#include <AP_Progmem/AP_Progmem.h>
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Param/AP_Param.h>
 #include <StorageManager/StorageManager.h>
@@ -40,21 +39,20 @@
 #include <AP_Compass/AP_Compass.h>     // ArduPilot Mega Magnetometer Library
 #include <AP_Math/AP_Math.h>        // ArduPilot Mega Vector/Matrix math Library
 #include <AP_ADC/AP_ADC.h>         // ArduPilot Mega Analog to Digital Converter Library
-#include <AP_ADC_AnalogSource/AP_ADC_AnalogSource.h>
 #include <AP_InertialSensor/AP_InertialSensor.h> // Inertial Sensor Library
+#include <AP_AccelCal/AP_AccelCal.h>                // interface and maths for accelerometer calibration
 #include <AP_AHRS/AP_AHRS.h>         // ArduPilot Mega DCM Library
 #include <Filter/Filter.h>                     // Filter library
 #include <AP_Buffer/AP_Buffer.h>      // APM FIFO Buffer
-#include <AP_HAL_AVR/memcheck.h>
 
 #include <GCS_MAVLink/GCS_MAVLink.h>    // MAVLink GCS definitions
 #include <AP_SerialManager/AP_SerialManager.h>   // Serial manager library
 #include <AP_Declination/AP_Declination.h> // ArduPilot Mega Declination Helper Library
 #include <DataFlash/DataFlash.h>
-#include <SITL/SITL.h>
 #include <PID/PID.h>
 #include <AP_Scheduler/AP_Scheduler.h>       // main loop scheduler
 #include <AP_NavEKF/AP_NavEKF.h>
+#include <AP_NavEKF2/AP_NavEKF2.h>
 
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <AP_Mission/AP_Mission.h>
@@ -75,25 +73,22 @@
 #include "Parameters.h"
 #include <GCS_MAVLink/GCS.h>
 
-#include <AP_HAL_AVR/AP_HAL_AVR.h>
-#include <AP_HAL_SITL/AP_HAL_SITL.h>
-#include <AP_HAL_PX4/AP_HAL_PX4.h>
-#include <AP_HAL_FLYMAPLE/AP_HAL_FLYMAPLE.h>
-#include <AP_HAL_Linux/AP_HAL_Linux.h>
-#include <AP_HAL_Empty/AP_HAL_Empty.h>
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#include <SITL/SITL.h>
+#endif
 
-class Tracker {
+class Tracker : public AP_HAL::HAL::Callbacks {
 public:
     friend class GCS_MAVLINK;
     friend class Parameters;
 
     Tracker(void);
-    void setup();
-    void loop();
+
+    // HAL::Callbacks implementation.
+    void setup() override;
+    void loop() override;
 
 private:
-    const AP_InertialSensor::Sample_rate ins_sample_rate = AP_InertialSensor::RATE_50HZ;
-
     Parameters g;
 
     // main loop scheduler
@@ -105,6 +100,11 @@ private:
     uint32_t start_time_ms = 0;
 
     bool usb_connected = false;
+
+    // has a log download started?
+    bool in_log_download = false;
+    bool logging_started = false;
+    DataFlash_Class DataFlash{FIRMWARE_STRING};
 
     AP_GPS gps;
 
@@ -119,13 +119,14 @@ private:
 // Inertial Navigation EKF
 #if AP_AHRS_NAVEKF_AVAILABLE
     NavEKF EKF{&ahrs, barometer, rng};
-    AP_AHRS_NavEKF ahrs{ins, barometer, gps, rng, EKF};
+    NavEKF2 EKF2{&ahrs, barometer, rng};
+    AP_AHRS_NavEKF ahrs{ins, barometer, gps, rng, EKF, EKF2};
 #else
     AP_AHRS_DCM ahrs{ins, barometer, gps};
 #endif
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    SITL sitl;
+    SITL::SITL sitl;
 #endif
     
     /**
@@ -185,10 +186,16 @@ private:
     int8_t slew_dir = 0;
     uint32_t slew_start_ms = 0;
 
+    // use this to prevent recursion during sensor init
+    bool in_mavlink_delay = false;
+
     static const AP_Scheduler::Task scheduler_tasks[];
     static const AP_Param::Info var_info[];
+    static const struct LogStructure log_structure[];
 
+    void dataflash_periodic(void);
     void one_second_loop();
+    void ten_hz_logging_loop();
     void send_heartbeat(mavlink_channel_t chan);
     void send_attitude(mavlink_channel_t chan);
     void send_location(mavlink_channel_t chan);
@@ -202,7 +209,7 @@ private:
     void gcs_send_message(enum ap_message id);
     void gcs_data_stream_send(void);
     void gcs_update(void);
-    void gcs_send_text_P(MAV_SEVERITY severity, const prog_char_t *str);
+    void gcs_send_text(MAV_SEVERITY severity, const char *str);
     void gcs_retry_deferred(void);
     void load_parameters(void);
     void update_auto(void);
@@ -215,6 +222,7 @@ private:
     void update_ahrs();
     void update_compass(void);
     void compass_accumulate(void);
+    void accel_cal_update(void);
     void barometer_accumulate(void);
     void update_GPS(void);
     void init_servos();
@@ -245,9 +253,15 @@ private:
     void tracking_update_pressure(const mavlink_scaled_pressure_t &msg);
     void tracking_manual_control(const mavlink_manual_control_t &msg);
     void update_armed_disarmed();
-    void gcs_send_text_fmt(const prog_char_t *fmt, ...);
+    void gcs_send_text_fmt(MAV_SEVERITY severity, const char *fmt, ...);
     void init_capabilities(void);
     void compass_cal_update();
+    void Log_Write_Attitude();
+    void Log_Write_Baro(void);
+    void Log_Write_Vehicle_Startup_Messages();
+    void start_logging();
+    void log_init(void);
+    bool should_log(uint32_t mask);
 
 public:
     void mavlink_snoop(const mavlink_message_t* msg);

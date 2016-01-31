@@ -52,18 +52,11 @@
 #endif
 
 #if HIL_MODE != HIL_MODE_DISABLED       // we are in HIL mode
- #undef CONFIG_BARO
- #define CONFIG_BARO HAL_BARO_HIL
- #undef  CONFIG_COMPASS
- #define CONFIG_COMPASS HAL_COMPASS_HIL
+ #undef CONFIG_SONAR
+ #define CONFIG_SONAR DISABLED
 #endif
 
 #define MAGNETOMETER ENABLED
-
-// low power cpus are not supported
-#if HAL_CPU_CLASS < HAL_CPU_CLASS_75
- # error ArduCopter ver3.3 and higher is not supported on APM1, APM2 boards
-#endif
 
 // run at 400Hz on all systems
 # define MAIN_LOOP_RATE    400
@@ -122,8 +115,6 @@
   # define RATE_YAW_IMAX                        4500
   # define RATE_YAW_FF                          0.02
   # define RATE_YAW_FILT_HZ                     20.0f
-  # define HELI_STAB_COLLECTIVE_MIN_DEFAULT     0
-  # define HELI_STAB_COLLECTIVE_MAX_DEFAULT     1000
   # define THR_MIN_DEFAULT                      0
   # define AUTOTUNE_ENABLED                     DISABLED
 #endif
@@ -150,14 +141,6 @@
 // default RC speed in Hz
 #ifndef RC_FAST_SPEED
    #   define RC_FAST_SPEED 490
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// Barometer
-//
-
-#ifndef CONFIG_BARO
- # define CONFIG_BARO AP_BARO_BMP085
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -190,20 +173,6 @@
 
 #ifndef SONAR_TILT_CORRECTION               // by disable tilt correction for use of range finder data by EKF
  # define SONAR_TILT_CORRECTION DISABLED
-#endif
-
-//////////////////////////////////////////////////////////////////////////////
-// HIL_MODE                                 OPTIONAL
-
-#ifndef HIL_MODE
- #define HIL_MODE        HIL_MODE_DISABLED
-#endif
-
-#if HIL_MODE != HIL_MODE_DISABLED       // we are in HIL mode
-
- #undef CONFIG_SONAR
- #define CONFIG_SONAR DISABLED
-
 #endif
 
 
@@ -244,6 +213,10 @@
  # define FS_GCS_TIMEOUT_MS             5000    // gcs failsafe triggers after 5 seconds with no GCS heartbeat
 #endif
 
+#ifndef GNDEFFECT_COMPENSATION
+ # define GNDEFFECT_COMPENSATION          DISABLED
+#endif
+
 // possible values for FS_GCS parameter
 #define FS_GCS_DISABLED                     0
 #define FS_GCS_ENABLED_ALWAYS_RTL           1
@@ -261,6 +234,10 @@
 
 #ifndef FS_CLOSE_TO_HOME_CM
  # define FS_CLOSE_TO_HOME_CM               500 // if vehicle within 5m of home, vehicle will LAND instead of RTL during some failsafes
+#endif
+
+#ifndef PREARM_DISPLAY_PERIOD
+# define PREARM_DISPLAY_PERIOD 30
 #endif
 
 // pre-arm baro vs inertial nav max alt disparity
@@ -350,6 +327,12 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
+// ADSB support
+#ifndef ADSB_ENABLED
+# define ADSB_ENABLED ENABLED
+#endif
+
+//////////////////////////////////////////////////////////////////////////////
 // Nav-Guided - allows external nav computer to control vehicle
 #ifndef NAV_GUIDED
  # define NAV_GUIDED    ENABLED
@@ -417,6 +400,9 @@
 #endif
 #ifndef LAND_WITH_DELAY_MS
  # define LAND_WITH_DELAY_MS        4000    // default delay (in milliseconds) when a land-with-delay is triggered during a failsafe event
+#endif
+#ifndef LAND_CANCEL_TRIGGER_THR
+ # define LAND_CANCEL_TRIGGER_THR   700     // land is cancelled by input throttle above 700
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -507,6 +493,18 @@
 
 #ifndef RTL_CLIMB_MIN_DEFAULT
  # define RTL_CLIMB_MIN_DEFAULT     0       // vehicle will always climb this many cm as first stage of RTL
+#endif
+
+#ifndef RTL_ABS_MIN_CLIMB
+ # define RTL_ABS_MIN_CLIMB         250     // absolute minimum initial climb
+#endif
+
+#ifndef RTL_CONE_SLOPE
+ # define RTL_CONE_SLOPE            3.0f    // slope of RTL cone (height / distance). 0 = No cone
+#endif
+
+#ifndef RTL_MIN_CONE_SLOPE
+ # define RTL_MIN_CONE_SLOPE        0.5f    // minimum slope of cone
 #endif
 
 #ifndef RTL_LOITER_TIME
@@ -743,6 +741,13 @@
 
 #ifndef AC_RALLY
  #define AC_RALLY   ENABLED
+#endif
+
+#ifndef AC_TERRAIN
+ #define AC_TERRAIN ENABLED
+ #if !AC_RALLY
+  #error Terrain relies on Rally which is disabled
+ #endif
 #endif
 
 //////////////////////////////////////////////////////////////////////////////

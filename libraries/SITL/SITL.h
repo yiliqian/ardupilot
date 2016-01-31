@@ -1,18 +1,15 @@
 /// -*- tab-width: 4; Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*-
 
-#ifndef __SITL_H__
-#define __SITL_H__
+#pragma once
 
-#include <AP_Param/AP_Param.h>
-#include <AP_Common/AP_Common.h>
-#include <AP_Math/AP_Math.h>
 #include <GCS_MAVLink/GCS_MAVLink.h>
-#include <DataFlash/DataFlash.h>
 
-struct PACKED sitl_fdm {
-    // this is the packet sent by the simulator
-    // to the APM executable to update the simulator state
-    // All values are little-endian
+class DataFlash_Class;
+
+namespace SITL {
+
+struct sitl_fdm {
+    // this is the structure passed between FDM models and the main SITL code
     uint64_t timestamp_us;
     double latitude, longitude; // degrees
     double altitude;  // MSL
@@ -22,15 +19,16 @@ struct PACKED sitl_fdm {
     double rollRate, pitchRate, yawRate; // degrees/s/s in body frame
     double rollDeg, pitchDeg, yawDeg;    // euler angles, degrees
     double airspeed; // m/s
-    uint32_t magic; // 0x4c56414f
+    double battery_voltage; // Volts
+    double battery_current; // Amps
+    double rpm1;            // main prop RPM
+    double rpm2;            // secondary RPM
 };
 
 // number of rc output channels
 #define SITL_NUM_CHANNELS 14
 
-
-class SITL
-{
+class SITL {
 public:
 
     SITL() {
@@ -52,6 +50,12 @@ public:
 
     struct sitl_fdm state;
 
+    // loop update rate in Hz
+    uint16_t update_rate_hz;
+
+    // true when motors are active
+    bool motors_on;
+
     static const struct AP_Param::GroupInfo var_info[];
 
     // noise levels for simulated sensors
@@ -59,6 +63,7 @@ public:
     AP_Float baro_drift;  // in metres per second
     AP_Float baro_glitch; // glitch in meters
     AP_Float gyro_noise;  // in degrees/second
+    AP_Vector3f gyro_scale;  // percentage
     AP_Float accel_noise; // in m/s/s
     AP_Float accel2_noise; // in m/s/s
     AP_Vector3f accel_bias; // in m/s/s
@@ -108,7 +113,7 @@ public:
 
     void simstate_send(mavlink_channel_t chan);
 
-    void Log_Write_SIMSTATE(DataFlash_Class &dataflash);
+    void Log_Write_SIMSTATE(DataFlash_Class *dataflash);
 
     // convert a set of roll rates from earth frame to body frame
     static void convert_body_frame(double rollDeg, double pitchDeg,
@@ -119,4 +124,4 @@ public:
     static Vector3f convert_earth_frame(const Matrix3f &dcm, const Vector3f &gyro);
 };
 
-#endif // __SITL_H__
+} // namespace SITL

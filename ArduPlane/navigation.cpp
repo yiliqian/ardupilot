@@ -64,6 +64,7 @@ void Plane::navigate()
     auto_state.wp_distance = get_distance(current_loc, next_WP_loc);
     auto_state.wp_proportion = location_path_proportion(current_loc, 
                                                         prev_WP_loc, next_WP_loc);
+    SpdHgt_Controller->set_path_proportion(auto_state.wp_proportion);
 
     // update total loiter angle
     loiter_angle_update();
@@ -118,7 +119,7 @@ void Plane::calc_gndspeed_undershoot()
 	// This prevents flyaway if wind takes plane backwards
     if (gps.status() >= AP_GPS::GPS_OK_FIX_2D) {
 	    Vector2f gndVel = ahrs.groundspeed_vector();
-		const Matrix3f &rotMat = ahrs.get_dcm_matrix();
+		const Matrix3f &rotMat = ahrs.get_rotation_body_to_ned();
 		Vector2f yawVect = Vector2f(rotMat.a.x,rotMat.b.x);
 		yawVect.normalize();
 		float gndSpdFwd = yawVect * gndVel;
@@ -126,9 +127,33 @@ void Plane::calc_gndspeed_undershoot()
     }
 }
 
-void Plane::update_loiter()
+void Plane::update_loiter(uint16_t radius)
 {
-    nav_controller->update_loiter(next_WP_loc, abs(g.loiter_radius), loiter.direction);
+    if (radius == 0) {
+        radius = abs(g.loiter_radius);
+    }
+
+    if (loiter.start_time_ms == 0 &&
+        control_mode == AUTO &&
+        !auto_state.no_crosstrack &&
+        get_distance(current_loc, next_WP_loc) > radius*2) {
+        // if never reached loiter point and using crosstrack and somewhat far away from loiter point
+        // navigate to it like in auto-mode for normal crosstrack behavior
+        nav_controller->update_waypoint(prev_WP_loc, next_WP_loc);
+    } else {
+        nav_controller->update_loiter(next_WP_loc, radius, loiter.direction);
+    }
+
+    if (loiter.start_time_ms == 0) {
+        if (nav_controller->reached_loiter_target()) {
+            // we've reached the target, start the timer
+            loiter.start_time_ms = millis();
+            if (control_mode == GUIDED) {
+                // starting a loiter in GUIDED means we just reached the target point
+                gcs_send_mission_item_reached_message(0);
+            }
+        }
+    }
 }
 
 /*

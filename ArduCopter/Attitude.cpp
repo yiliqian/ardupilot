@@ -2,7 +2,7 @@
 
 #include "Copter.h"
 
-// get_smoothing_gain - returns smoothing gain to be passed into attitude_control.angle_ef_roll_pitch_rate_ef_yaw_smooth
+// get_smoothing_gain - returns smoothing gain to be passed into attitude_control.input_euler_angle_roll_pitch_euler_rate_yaw_smooth
 //      result is a number from 2 to 12 with 2 being very sluggish and 12 being very crisp
 float Copter::get_smoothing_gain()
 {
@@ -53,8 +53,10 @@ float Copter::get_pilot_desired_yaw_rate(int16_t stick_angle)
 void Copter::check_ekf_yaw_reset()
 {
     float yaw_angle_change_rad = 0.0f;
-    if (ahrs.get_NavEKF().getLastYawResetAngle(yaw_angle_change_rad)) {
+    uint32_t new_ekfYawReset_ms = ahrs.getLastYawResetAngle(yaw_angle_change_rad);
+    if (new_ekfYawReset_ms != ekfYawReset_ms) {
         attitude_control.shift_ef_yaw_target(ToDeg(yaw_angle_change_rad) * 100.0f);
+        ekfYawReset_ms = new_ekfYawReset_ms;
     }
 }
 

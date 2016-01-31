@@ -17,7 +17,7 @@
 
 #include <AP_HAL/AP_HAL.h>
 
-#if CONFIG_HAL_BOARD_TYPE == CONFIG_HAL_BOARD_TYPE_LINUX && \
+#if CONFIG_HAL_BOARD == HAL_BOARD_LINUX && \
     CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BEBOP
 
 #include "AP_BattMonitor_Bebop.h"
@@ -142,10 +142,9 @@ void AP_BattMonitor_Bebop::read(void)
     uint32_t tnow;
     BebopBLDC_ObsData data;
     float remaining, vbat, vbat_raw;
-    Linux::LinuxRCOutput_Bebop *rcout;
 
-    rcout = (Linux::LinuxRCOutput_Bebop *)hal.rcout;
-    tnow = hal.scheduler->micros();
+    auto rcout = Linux::RCOutput_Bebop::from(hal.rcout);
+    tnow = AP_HAL::micros();
 
     ret = rcout->read_obs_data(data);
     if (ret < 0) {

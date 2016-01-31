@@ -123,7 +123,7 @@ void Plane::stick_mix_channel(RC_Channel *channel, int16_t &servo_out)
         
     ch_inf = (float)channel->radio_in - (float)channel->radio_trim;
     ch_inf = fabsf(ch_inf);
-    ch_inf = min(ch_inf, 400.0f);
+    ch_inf = MIN(ch_inf, 400.0f);
     ch_inf = ((400.0f - ch_inf) / 400.0f);
     servo_out *= ch_inf;
     servo_out += channel->pwm_to_angle();
@@ -140,6 +140,9 @@ void Plane::stabilize_stick_mixing_direct()
         control_mode == AUTOTUNE ||
         control_mode == FLY_BY_WIRE_B ||
         control_mode == CRUISE ||
+        control_mode == QSTABILIZE ||
+        control_mode == QHOVER ||
+        control_mode == QLOITER ||
         control_mode == TRAINING) {
         return;
     }
@@ -159,6 +162,9 @@ void Plane::stabilize_stick_mixing_fbw()
         control_mode == AUTOTUNE ||
         control_mode == FLY_BY_WIRE_B ||
         control_mode == CRUISE ||
+        control_mode == QSTABILIZE ||
+        control_mode == QHOVER ||
+        control_mode == QLOITER ||
         control_mode == TRAINING ||
         (control_mode == AUTO && g.auto_fbw_steer)) {
         return;
@@ -354,6 +360,10 @@ void Plane::stabilize()
         stabilize_training(speed_scaler);
     } else if (control_mode == ACRO) {
         stabilize_acro(speed_scaler);
+    } else if (control_mode == QSTABILIZE ||
+               control_mode == QHOVER ||
+               control_mode == QLOITER) {
+        quadplane.control_run();
     } else {
         if (g.stick_mixing == STICK_MIXING_FBW && control_mode != STABILIZE) {
             stabilize_stick_mixing_fbw();
@@ -558,6 +568,12 @@ void Plane::flap_slew_limit(int8_t &last_value, int8_t &new_value)
 */
 bool Plane::suppress_throttle(void)
 {
+    if (auto_throttle_mode && parachute.released()) {
+        // throttle always suppressed in auto-throttle modes after parachute release
+        throttle_suppressed = true;
+        return true;
+    }
+    
     if (!throttle_suppressed) {
         // we've previously met a condition for unsupressing the throttle
         return false;
@@ -580,7 +596,7 @@ bool Plane::suppress_throttle(void)
 
         uint32_t launch_duration_ms = ((int32_t)g.takeoff_throttle_delay)*100 + 2000;
         if (is_flying() &&
-            millis() - started_flying_ms > max(launch_duration_ms,5000) && // been flying >5s in any mode
+            millis() - started_flying_ms > MAX(launch_duration_ms, 5000U) && // been flying >5s in any mode
             adjusted_relative_altitude_cm() > 500 && // are >5m above AGL/home
             labs(ahrs.pitch_sensor) < 3000 && // not high pitch, which happens when held before launch
             gps_movement) { // definate gps movement
@@ -603,7 +619,7 @@ bool Plane::suppress_throttle(void)
     if (relative_altitude_abs_cm() >= 1000) {
         // we're more than 10m from the home altitude
         throttle_suppressed = false;
-        gcs_send_text_fmt(PSTR("Throttle enabled - altitude %.2f"), 
+        gcs_send_text_fmt(MAV_SEVERITY_INFO, "Throttle enabled. Altitude %.2f",
                           (double)(relative_altitude_abs_cm()*0.01f));
         return false;
     }
@@ -614,12 +630,17 @@ bool Plane::suppress_throttle(void)
         // groundspeed with bad GPS reception
         if ((!ahrs.airspeed_sensor_enabled()) || airspeed.get_airspeed() >= 5) {
             // we're moving at more than 5 m/s
-            gcs_send_text_fmt(PSTR("Throttle enabled - speed %.2f airspeed %.2f"), 
+            gcs_send_text_fmt(MAV_SEVERITY_INFO, "Throttle enabled. Speed %.2f airspeed %.2f",
                               (double)gps.ground_speed(),
                               (double)airspeed.get_airspeed());
             throttle_suppressed = false;
             return false;        
         }
+    }
+
+    if (quadplane.is_flying()) {
+        gcs_send_text_fmt(MAV_SEVERITY_INFO, "Throttle enabled VTOL");
+        throttle_suppressed = false;
     }
 
     // throttle remains suppressed
@@ -753,6 +774,9 @@ uint16_t Plane::throttle_min(void) const
 void Plane::set_servos(void)
 {
     int16_t last_throttle = channel_throttle->radio_out;
+
+    // do any transition updates for quadplane
+    quadplane.update();    
 
     if (control_mode == AUTO && auto_state.idle_mode) {
         // special handling for balloon launch
@@ -909,6 +933,13 @@ void Plane::set_servos(void)
                    guided_throttle_passthru) {
             // manual pass through of throttle while in GUIDED
             channel_throttle->radio_out = channel_throttle->radio_in;
+        } else if (control_mode == QSTABILIZE ||
+                   control_mode == QHOVER ||
+                   control_mode == QLOITER ||
+                   quadplane.in_vtol_auto()) {
+            // no forward throttle for now
+            channel_throttle->servo_out = 0;
+            channel_throttle->calc_pwm();
         } else {
             // normal throttle calculation based on servo_out
             channel_throttle->calc_pwm();
@@ -1055,7 +1086,7 @@ void Plane::set_servos(void)
 void Plane::demo_servos(uint8_t i) 
 {
     while(i > 0) {
-        gcs_send_text_P(MAV_SEVERITY_WARNING,PSTR("Demo Servos!"));
+        gcs_send_text(MAV_SEVERITY_INFO,"Demo servos");
         demoing_servos = true;
         servo_write(1, 1400);
         hal.scheduler->delay(400);
@@ -1077,7 +1108,7 @@ void Plane::demo_servos(uint8_t i)
 void Plane::adjust_nav_pitch_throttle(void)
 {
     uint8_t throttle = throttle_percentage();
-    if (throttle < aparm.throttle_cruise) {
+    if (throttle < aparm.throttle_cruise && flight_stage != AP_SpdHgtControl::FLIGHT_VTOL) {
         float p = (aparm.throttle_cruise - throttle) / (float)aparm.throttle_cruise;
         nav_pitch_cd -= g.stab_pitch_down * 100.0f * p;
     }

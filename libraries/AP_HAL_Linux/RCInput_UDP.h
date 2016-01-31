@@ -8,11 +8,11 @@
 
 #define RCINPUT_UDP_DEF_PORT 777
 
-class Linux::LinuxRCInput_UDP : public Linux::LinuxRCInput
+class Linux::RCInput_UDP : public Linux::RCInput
 {
 public:
-    LinuxRCInput_UDP();
-    void init(void*);
+    RCInput_UDP();
+    void init();
     void _timer_tick(void);
 private:
     SocketAPM   _socket{true};

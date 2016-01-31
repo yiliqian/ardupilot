@@ -241,6 +241,18 @@ void Copter::exit_mode(uint8_t old_control_mode, uint8_t new_control_mode)
     // firmly reset the flybar passthrough to false when exiting acro mode.
     if (old_control_mode == ACRO) {
         attitude_control.use_flybar_passthrough(false, false);
+        motors.set_acro_tail(false);
+    }
+
+    // if we are changing from a mode that did not use manual throttle,
+    // stab col ramp value should be pre-loaded to the correct value to avoid a twitch
+    // heli_stab_col_ramp should really only be active switching between Stabilize and Acro modes
+    if (!mode_has_manual_throttle(old_control_mode)){
+        if (new_control_mode == STABILIZE){
+            input_manager.set_stab_col_ramp(1.0);
+        } else if (new_control_mode == ACRO){
+            input_manager.set_stab_col_ramp(0.0);
+        }
     }
 
     // reset RC Passthrough to motors
@@ -283,7 +295,7 @@ bool Copter::mode_has_manual_throttle(uint8_t mode) {
 // mode_allows_arming - returns true if vehicle can be armed in the specified mode
 //  arming_from_gcs should be set to true if the arming request comes from the ground station
 bool Copter::mode_allows_arming(uint8_t mode, bool arming_from_gcs) {
-    if (mode_has_manual_throttle(mode) || mode == LOITER || mode == ALT_HOLD || mode == POSHOLD || (arming_from_gcs && mode == GUIDED)) {
+    if (mode_has_manual_throttle(mode) || mode == LOITER || mode == ALT_HOLD || mode == POSHOLD || mode == DRIFT || mode == SPORT || (arming_from_gcs && mode == GUIDED)) {
         return true;
     }
     return false;
@@ -314,55 +326,52 @@ void Copter::print_flight_mode(AP_HAL::BetterStream *port, uint8_t mode)
 {
     switch (mode) {
     case STABILIZE:
-        port->print_P(PSTR("STABILIZE"));
+        port->print("STABILIZE");
         break;
     case ACRO:
-        port->print_P(PSTR("ACRO"));
+        port->print("ACRO");
         break;
     case ALT_HOLD:
-        port->print_P(PSTR("ALT_HOLD"));
+        port->print("ALT_HOLD");
         break;
     case AUTO:
-        port->print_P(PSTR("AUTO"));
+        port->print("AUTO");
         break;
     case GUIDED:
-        port->print_P(PSTR("GUIDED"));
+        port->print("GUIDED");
         break;
     case LOITER:
-        port->print_P(PSTR("LOITER"));
+        port->print("LOITER");
         break;
     case RTL:
-        port->print_P(PSTR("RTL"));
+        port->print("RTL");
         break;
     case CIRCLE:
-        port->print_P(PSTR("CIRCLE"));
+        port->print("CIRCLE");
         break;
     case LAND:
-        port->print_P(PSTR("LAND"));
-        break;
-    case OF_LOITER:
-        port->print_P(PSTR("OF_LOITER"));
+        port->print("LAND");
         break;
     case DRIFT:
-        port->print_P(PSTR("DRIFT"));
+        port->print("DRIFT");
         break;
     case SPORT:
-        port->print_P(PSTR("SPORT"));
+        port->print("SPORT");
         break;
     case FLIP:
-        port->print_P(PSTR("FLIP"));
+        port->print("FLIP");
         break;
     case AUTOTUNE:
-        port->print_P(PSTR("AUTOTUNE"));
+        port->print("AUTOTUNE");
         break;
     case POSHOLD:
-        port->print_P(PSTR("POSHOLD"));
+        port->print("POSHOLD");
         break;
     case BRAKE:
-        port->print_P(PSTR("BRAKE"));
+        port->print("BRAKE");
         break;
     default:
-        port->printf_P(PSTR("Mode(%u)"), (unsigned)mode);
+        port->printf("Mode(%u)", (unsigned)mode);
         break;
     }
 }

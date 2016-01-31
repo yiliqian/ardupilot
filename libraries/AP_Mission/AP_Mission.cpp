@@ -6,7 +6,7 @@
 #include "AP_Mission.h"
 #include <AP_Terrain/AP_Terrain.h>
 
-const AP_Param::GroupInfo AP_Mission::var_info[] PROGMEM = {
+const AP_Param::GroupInfo AP_Mission::var_info[] = {
 
     // @Param: TOTAL
     // @DisplayName: Total mission commands
@@ -43,10 +43,10 @@ void AP_Mission::init()
 
     // prevent an easy programming error, this will be optimised out
     if (sizeof(union Content) != 12) {
-        hal.scheduler->panic(PSTR("AP_Mission Content must be 12 bytes"));
+        AP_HAL::panic("AP_Mission Content must be 12 bytes");
     }
 
-    _last_change_time_ms = hal.scheduler->millis();
+    _last_change_time_ms = AP_HAL::millis();
 }
 
 /// start - resets current commands to point to the beginning of the mission
@@ -454,7 +454,7 @@ bool AP_Mission::write_cmd_to_storage(uint16_t index, Mission_Command& cmd)
     _storage.write_block(pos_in_storage+3, cmd.content.bytes, 12);
 
     // remember when the mission last changed
-    _last_change_time_ms = hal.scheduler->millis();
+    _last_change_time_ms = AP_HAL::millis();
 
     // return success
     return true;
@@ -471,8 +471,8 @@ void AP_Mission::write_home_to_storage()
 }
 
 // mavlink_to_mission_cmd - converts mavlink message to an AP_Mission::Mission_Command object which can be stored to eeprom
-//  return true on success, false on failure
-bool AP_Mission::mavlink_to_mission_cmd(const mavlink_mission_item_t& packet, AP_Mission::Mission_Command& cmd)
+//  return MAV_MISSION_ACCEPTED on success, MAV_MISSION_RESULT error on failure
+MAV_MISSION_RESULT AP_Mission::mavlink_to_mission_cmd(const mavlink_mission_item_t& packet, AP_Mission::Mission_Command& cmd)
 {
     bool copy_location = false;
     bool copy_alt = false;
@@ -709,9 +709,17 @@ bool AP_Mission::mavlink_to_mission_cmd(const mavlink_mission_item_t& packet, AP
         cmd.content.altitude_wait.wiggle_time = packet.param3;
         break;
 
+    case MAV_CMD_NAV_VTOL_TAKEOFF:
+        copy_location = true;
+        break;
+
+    case MAV_CMD_NAV_VTOL_LAND:
+        copy_location = true;
+        break;
+        
     default:
         // unrecognised command
-        return false;
+        return MAV_MISSION_UNSUPPORTED;
     }
 
     // copy location from mavlink to command
@@ -719,9 +727,15 @@ bool AP_Mission::mavlink_to_mission_cmd(const mavlink_mission_item_t& packet, AP
 
         // sanity check location
         if (copy_location) {
-            if (fabsf(packet.x) > 90.0f || fabsf(packet.y) > 180.0f) {
-                return false;
+            if (fabsf(packet.x) > 90.0f) {
+                return MAV_MISSION_INVALID_PARAM5_X;
             }
+            if (fabsf(packet.y) > 180.0f) {
+                return MAV_MISSION_INVALID_PARAM6_Y;
+            }
+        }
+        if (fabsf(packet.z) >= LOCATION_ALT_MAX_M) {
+            return MAV_MISSION_INVALID_PARAM7;
         }
 
         switch (packet.frame) {
@@ -785,12 +799,12 @@ bool AP_Mission::mavlink_to_mission_cmd(const mavlink_mission_item_t& packet, AP
 #endif
 
         default:
-            return false;
+            return MAV_MISSION_UNSUPPORTED_FRAME;
         }
     }
 
     // if we got this far then it must have been succesful
-    return true;
+    return MAV_MISSION_ACCEPTED;
 }
 
 // mission_cmd_to_mavlink - converts an AP_Mission::Mission_Command object to a mavlink message which can be sent to the GCS
@@ -1035,6 +1049,14 @@ bool AP_Mission::mission_cmd_to_mavlink(const AP_Mission::Mission_Command& cmd, 
         packet.param3 = cmd.content.altitude_wait.wiggle_time;
         break;
 
+    case MAV_CMD_NAV_VTOL_TAKEOFF:
+        copy_location = true;
+        break;
+
+    case MAV_CMD_NAV_VTOL_LAND:
+        copy_location = true;
+        break;
+        
     default:
         // unrecognised command
         return false;

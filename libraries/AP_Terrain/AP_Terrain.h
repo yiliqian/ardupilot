@@ -94,7 +94,7 @@ public:
     void update(void);
 
     // return status enum for health reporting
-    enum TerrainStatus status(void);
+    enum TerrainStatus status(void) const { return system_status; }
 
     // send any pending terrain request message
     void send_request(mavlink_channel_t chan);
@@ -167,7 +167,7 @@ public:
 
 private:
     // allocate the terrain subsystem data
-    void allocate(void);
+    bool allocate(void);
 
     /*
       a grid block is a structure in a local file containing height
@@ -338,7 +338,8 @@ private:
     const AP_Rally &rally;
 
     // cache of grids in memory, LRU
-    struct grid_cache cache[TERRAIN_GRID_BLOCK_CACHE_SIZE];
+    uint8_t cache_size = 0;
+    struct grid_cache *cache = nullptr;
 
     // a grid_cache block waiting for disk IO
     enum DiskIoState {
@@ -404,6 +405,9 @@ private:
     uint16_t last_rally_spacing;
 
     char *file_path = NULL;    
+
+    // status
+    enum TerrainStatus system_status = TerrainStatusDisabled;
 };
 #endif // AP_TERRAIN_AVAILABLE
 #endif // __AP_TERRAIN_H__

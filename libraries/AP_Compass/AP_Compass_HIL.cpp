@@ -53,7 +53,6 @@ AP_Compass_HIL::init(void)
     // register two compass instances
     for (uint8_t i=0; i<HIL_NUM_COMPASSES; i++) {
         _compass_instance[i] = register_compass();
-        set_milligauss_ratio(_compass_instance[i], 1.0f);
     }
     return true;
 }
@@ -65,7 +64,7 @@ void AP_Compass_HIL::read()
             uint8_t compass_instance = _compass_instance[i];
             Vector3f field = _compass._hil.field[compass_instance];
             rotate_field(field, compass_instance);
-            publish_raw_field(field, hal.scheduler->micros(), compass_instance);
+            publish_raw_field(field, AP_HAL::micros(), compass_instance);
             correct_field(field, compass_instance);
             publish_filtered_field(field, compass_instance);
         }

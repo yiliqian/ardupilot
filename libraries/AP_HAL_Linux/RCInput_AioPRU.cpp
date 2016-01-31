@@ -34,11 +34,11 @@ extern const AP_HAL::HAL& hal;
 
 using namespace Linux;
 
-void LinuxRCInput_AioPRU::init(void*)
+void RCInput_AioPRU::init()
 {
     int mem_fd = open("/dev/mem", O_RDWR|O_SYNC);
     if (mem_fd == -1) {
-        hal.scheduler->panic("Unable to open /dev/mem");
+        AP_HAL::panic("Unable to open /dev/mem");
     }
     ring_buffer = (volatile struct ring_buffer*) mmap(0, 0x1000, PROT_READ|PROT_WRITE, MAP_SHARED, mem_fd, RCIN_PRUSS_RAM_BASE);
     close(mem_fd);
@@ -48,7 +48,7 @@ void LinuxRCInput_AioPRU::init(void*)
 /*
   called at 1kHz to check for new pulse capture data from the PRU
  */
-void LinuxRCInput_AioPRU::_timer_tick()
+void RCInput_AioPRU::_timer_tick()
 {
     while (ring_buffer->ring_head != ring_buffer->ring_tail) {
         if (ring_buffer->ring_tail >= NUM_RING_ENTRIES) {

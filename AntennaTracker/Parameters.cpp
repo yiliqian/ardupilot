@@ -13,7 +13,7 @@
 #define GOBJECT(v, name, class) { AP_PARAM_GROUP, name, Parameters::k_param_ ## v, (const void *)&tracker.v, {group_info : class::var_info} }
 #define GOBJECTN(v, pname, name, class) { AP_PARAM_GROUP, name, Parameters::k_param_ ## pname, (const void *)&tracker.v, {group_info : class::var_info} }
 
-const AP_Param::Info Tracker::var_info[] PROGMEM = {
+const AP_Param::Info Tracker::var_info[] = {
     GSCALAR(format_version,         "FORMAT_VERSION", 0),
     GSCALAR(software_type,          "SYSID_SW_TYPE",  Parameters::k_software_type),
 
@@ -218,17 +218,21 @@ const AP_Param::Info Tracker::var_info[] PROGMEM = {
     // @Path: GCS_Mavlink.cpp
     GOBJECTN(gcs[1],  gcs1,       "SR1_",     GCS_MAVLINK),
 
-#if MAVLINK_COMM_NUM_BUFFERS > 2
     // @Group: SR2_
     // @Path: GCS_Mavlink.cpp
     GOBJECTN(gcs[2],  gcs2,       "SR2_",     GCS_MAVLINK),
-#endif
 
-#if MAVLINK_COMM_NUM_BUFFERS > 3
     // @Group: SR3_
     // @Path: GCS_Mavlink.cpp
     GOBJECTN(gcs[3],  gcs3,       "SR3_",     GCS_MAVLINK),
-#endif
+
+    // @Param: LOG_BITMASK
+    // @DisplayName: Log bitmask
+    // @Description: 4 byte bitmap of log types to enable
+    // @Values: 63:Default,0:Disabled
+    // @Bitmask: 0:ATTITUDE,1:GPS,2:RCIN,3:IMU,4:RCOUT,5:COMPASS
+    // @User: Standard
+    GSCALAR(log_bitmask, "LOG_BITMASK", DEFAULT_LOG_BITMASK),
 
     // @Group: INS_
     // @Path: ../libraries/AP_InertialSensor/AP_InertialSensor.cpp
@@ -241,7 +245,7 @@ const AP_Param::Info Tracker::var_info[] PROGMEM = {
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     // @Group: SIM_
     // @Path: ../libraries/SITL/SITL.cpp
-    GOBJECT(sitl, "SIM_", SITL),
+    GOBJECT(sitl, "SIM_", SITL::SITL),
 #endif
 
     // @Group: BRD_
@@ -252,6 +256,10 @@ const AP_Param::Info Tracker::var_info[] PROGMEM = {
     // @Group: GPS_
     // @Path: ../libraries/AP_GPS/AP_GPS.cpp
     GOBJECT(gps, "GPS_", AP_GPS),
+
+    // @Group: NTF_
+    // @Path: ../libraries/AP_Notify/AP_Notify.cpp
+    GOBJECT(notify, "NTF_",  AP_Notify),
 
     // RC channel
     //-----------
@@ -288,16 +296,16 @@ void Tracker::load_parameters(void)
         g.format_version != Parameters::k_format_version) {
 
         // erase all parameters
-        hal.console->printf_P(PSTR("Firmware change: erasing EEPROM...\n"));
+        hal.console->printf("Firmware change: erasing EEPROM...\n");
         AP_Param::erase_all();
 
         // save the current format version
         g.format_version.set_and_save(Parameters::k_format_version);
-        hal.console->println_P(PSTR("done."));
-    } else {
-        uint32_t before = hal.scheduler->micros();
-        // Load all auto-loaded EEPROM variables
-        AP_Param::load_all();
-        hal.console->printf_P(PSTR("load_all took %luus\n"), (unsigned long)(hal.scheduler->micros() - before));
+        hal.console->println("done.");
     }
+
+    uint32_t before = AP_HAL::micros();
+    // Load all auto-loaded EEPROM variables
+    AP_Param::load_all();
+    hal.console->printf("load_all took %luus\n", (unsigned long)(AP_HAL::micros() - before));
 }

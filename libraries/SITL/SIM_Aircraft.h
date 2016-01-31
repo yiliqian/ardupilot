@@ -17,18 +17,18 @@
   parent class for aircraft simulators
 */
 
-#ifndef _SIM_AIRCRAFT_H
-#define _SIM_AIRCRAFT_H
+#pragma once
+
+#include <AP_Math/AP_Math.h>
 
 #include "SITL.h"
-#include <AP_Common/AP_Common.h>
-#include <AP_Math/AP_Math.h>
+
+namespace SITL {
 
 /*
   parent class for all simulator types
  */
-class Aircraft
-{
+class Aircraft {
 public:
     Aircraft(const char *home_str, const char *frame_str);
 
@@ -72,11 +72,33 @@ public:
     /* fill a sitl_fdm structure from the simulator state */
     void fill_fdm(struct sitl_fdm &fdm) const;
 
+    /* return normal distribution random numbers */
+    static double rand_normal(double mean, double stddev);
+
+    /* parse a home location string */
+    static bool parse_home(const char *home_str, Location &loc, float &yaw_degrees);
+
+    // get frame rate of model in Hz
+    float get_rate_hz(void) const { return rate_hz; }       
+
+    const Vector3f &get_gyro(void) const {
+        return gyro;
+    }
+
+    const Vector3f &get_velocity_ef(void) const {
+        return velocity_ef;
+    }
+
+    const Matrix3f &get_dcm(void) const {
+        return dcm;
+    }
+    
 protected:
     Location home;
     Location location;
 
     float ground_level;
+    float home_yaw;
     float frame_height;
     Matrix3f dcm;  // rotation matrix, APM conventions, from body to earth
     Vector3f gyro; // rad/s
@@ -85,6 +107,10 @@ protected:
     float mass; // kg
     Vector3f accel_body; // m/s/s NED, body frame
     float airspeed; // m/s, apparent airspeed
+    float battery_voltage = -1;
+    float battery_current = 0;
+    float rpm1 = 0;
+    float rpm2 = 0;
 
     uint64_t time_now_us;
 
@@ -99,6 +125,7 @@ protected:
     uint8_t instance;
     const char *autotest_dir;
     const char *frame;
+    bool use_time_sync = true;
 
     bool on_ground(const Vector3f &pos) const;
 
@@ -127,14 +154,14 @@ protected:
     /* return wall clock time in microseconds since 1970 */
     uint64_t get_wall_time_us(void) const;
 
-    /* return normal distribution random numbers */
-    double rand_normal(double mean, double stddev);
+    // update attitude and relative position
+    void update_dynamics(const Vector3f &rot_accel);
 
 private:
     uint64_t last_time_us = 0;
     uint32_t frame_counter = 0;
+    uint32_t last_ground_contact_ms;
     const uint32_t min_sleep_time;
 };
 
-#endif // _SIM_AIRCRAFT_H
-
+} // namespace SITL

@@ -4,13 +4,15 @@
 
 #include "AP_HAL_Namespace.h"
 
-#include "../AP_HAL/UARTDriver.h"
-#include "../AP_HAL/SPIDriver.h"
-#include "../AP_HAL/AnalogIn.h"
-#include "../AP_HAL/Storage.h"
-#include "../AP_HAL/GPIO.h"
-#include "../AP_HAL/RCInput.h"
-#include "../AP_HAL/RCOutput.h"
+#include "AnalogIn.h"
+#include "GPIO.h"
+#include "RCInput.h"
+#include "RCOutput.h"
+#include "SPIDriver.h"
+#include "Storage.h"
+#include "UARTDriver.h"
+#include "system.h"
+#include "OpticalFlow.h"
 
 class AP_HAL::HAL {
 public:
@@ -30,7 +32,8 @@ public:
         AP_HAL::RCInput*    _rcin,
         AP_HAL::RCOutput*   _rcout,
         AP_HAL::Scheduler*  _scheduler,
-        AP_HAL::Util*       _util)
+        AP_HAL::Util*       _util,
+        AP_HAL::OpticalFlow *_opticalflow)
         :
         uartA(_uartA),
         uartB(_uartB),
@@ -48,10 +51,29 @@ public:
         rcin(_rcin),
         rcout(_rcout),
         scheduler(_scheduler),
-        util(_util)
-    {}
+        util(_util),
+        opticalflow(_opticalflow)
+    {
+        AP_HAL::init();
+    }
 
-    virtual void init(int argc, char * const argv[]) const = 0;
+    struct Callbacks {
+        virtual void setup() = 0;
+        virtual void loop() = 0;
+    };
+
+    struct FunCallbacks : public Callbacks {
+        FunCallbacks(void (*setup_fun)(void), void (*loop_fun)(void));
+
+        void setup() override { _setup(); }
+        void loop() override { _loop(); }
+
+    private:
+        void (*_setup)(void);
+        void (*_loop)(void);
+    };
+
+    virtual void run(int argc, char * const argv[], Callbacks* callbacks) const = 0;
 
     AP_HAL::UARTDriver* uartA;
     AP_HAL::UARTDriver* uartB;
@@ -69,7 +91,8 @@ public:
     AP_HAL::RCInput*    rcin;
     AP_HAL::RCOutput*   rcout;
     AP_HAL::Scheduler*  scheduler;
-    AP_HAL::Util*       util;
+    AP_HAL::Util        *util;
+    AP_HAL::OpticalFlow *opticalflow;
 };
 
 #endif // __AP_HAL_HAL_H__

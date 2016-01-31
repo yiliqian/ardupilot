@@ -26,6 +26,7 @@ namespace AP_HAL {
     class RCOutput;
     class Scheduler;
     class Semaphore;
+    class OpticalFlow;
     
     class Util;
 
@@ -62,6 +63,8 @@ namespace AP_HAL {
         SPIDevice_RASPIO            = 12
     };
 
+    // Must be implemented by the concrete HALs.
+    const HAL& get_HAL();
 }
 
 #endif // __AP_HAL_NAMESPACE_H__

@@ -1,8 +1,14 @@
 #include <AP_HAL/AP_HAL.h>
 
-#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO || CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_RASPILOT
+#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO || \
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_RASPILOT || \
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_ERLEBRAIN2 || \
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BH || \
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_PXFMINI
 
 #include "GPIO.h"
+#include "Util_RPI.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,56 +19,22 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-#define MAX_SIZE_LINE 50
 
 using namespace Linux;
 
-static const AP_HAL::HAL& hal = AP_HAL_BOARD_DRIVER;
-LinuxGPIO_RPI::LinuxGPIO_RPI()
+static const AP_HAL::HAL& hal = AP_HAL::get_HAL();
+GPIO_RPI::GPIO_RPI()
 {}
 
-int LinuxGPIO_RPI::getRaspberryPiVersion() const
+void GPIO_RPI::init()
 {
-    char buffer[MAX_SIZE_LINE];
-    const char* hardware_description_entry = "Hardware";
-    const char* v1 = "BCM2708";
-    const char* v2 = "BCM2709";
-    char* flag;
-    FILE* fd;
-
-    fd = fopen("/proc/cpuinfo", "r");
-
-    while (fgets(buffer, MAX_SIZE_LINE, fd) != NULL) {
-        flag = strstr(buffer, hardware_description_entry);
-
-        if (flag != NULL) {
-            if (strstr(buffer, v2) != NULL) {
-                printf("Raspberry Pi 2 with BCM2709!\n");
-                fclose(fd);
-                return 2;
-            } else if (strstr(buffer, v1) != NULL) {
-                printf("Raspberry Pi 1 with BCM2708!\n");
-                fclose(fd);
-                return 1;
-            }
-        }
-    }
-
-    /* defaults to 1 */
-    fprintf(stderr, "Could not detect RPi version, defaulting to 1\n");
-    fclose(fd);
-    return 1;
-}
-
-void LinuxGPIO_RPI::init()
-{
-    int rpi_version = getRaspberryPiVersion();
-    uint32_t gpio_address = rpi_version == 1? GPIO_BASE(BCM2708_PERI_BASE): GPIO_BASE(BCM2709_PERI_BASE);
-    uint32_t pwm_address  = rpi_version == 1? PWM_BASE(BCM2708_PERI_BASE): PWM_BASE(BCM2709_PERI_BASE);
-    uint32_t clk_address  = rpi_version == 1? CLOCK_BASE(BCM2708_PERI_BASE): CLOCK_BASE(BCM2709_PERI_BASE);
+    int rpi_version = UtilRPI::from(hal.util)->get_rpi_version();
+    uint32_t gpio_address = rpi_version == 1 ? GPIO_BASE(BCM2708_PERI_BASE)   : GPIO_BASE(BCM2709_PERI_BASE);
+    uint32_t pwm_address  = rpi_version == 1 ? PWM_BASE(BCM2708_PERI_BASE)    : PWM_BASE(BCM2709_PERI_BASE);
+    uint32_t clk_address  = rpi_version == 1 ? CLOCK_BASE(BCM2708_PERI_BASE)  : CLOCK_BASE(BCM2709_PERI_BASE);
     // open /dev/mem
     if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
-        hal.scheduler->panic("Can't open /dev/mem");
+        AP_HAL::panic("Can't open /dev/mem");
     }
 
     // mmap GPIO
@@ -72,7 +44,7 @@ void LinuxGPIO_RPI::init()
         PROT_READ|PROT_WRITE, // Enable reading & writting to mapped memory
         MAP_SHARED,           // Shared with other processes
         mem_fd,               // File to map
-        gpio_address    // Offset to GPIO peripheral
+        gpio_address          // Offset to GPIO peripheral
     );
 
     pwm_map = mmap(
@@ -81,7 +53,7 @@ void LinuxGPIO_RPI::init()
         PROT_READ|PROT_WRITE, // Enable reading & writting to mapped memory
         MAP_SHARED,           // Shared with other processes
         mem_fd,               // File to map
-        pwm_address    // Offset to GPIO peripheral
+        pwm_address           // Offset to GPIO peripheral
     );
 
     clk_map = mmap(
@@ -90,13 +62,13 @@ void LinuxGPIO_RPI::init()
         PROT_READ|PROT_WRITE, // Enable reading & writting to mapped memory
         MAP_SHARED,           // Shared with other processes
         mem_fd,               // File to map
-        clk_address    // Offset to GPIO peripheral
+        clk_address           // Offset to GPIO peripheral
     );
 
     close(mem_fd); // No need to keep mem_fd open after mmap
 
     if (gpio_map == MAP_FAILED || pwm_map == MAP_FAILED || clk_map == MAP_FAILED) {
-        hal.scheduler->panic("Can't open /dev/mem");
+        AP_HAL::panic("Can't open /dev/mem");
     }
 
     gpio = (volatile uint32_t *)gpio_map; // Always use volatile pointer!
@@ -104,7 +76,7 @@ void LinuxGPIO_RPI::init()
     clk  = (volatile uint32_t *)clk_map;
 }
 
-void LinuxGPIO_RPI::pinMode(uint8_t pin, uint8_t output)
+void GPIO_RPI::pinMode(uint8_t pin, uint8_t output)
 {
     if (output == HAL_GPIO_INPUT) {
         GPIO_MODE_IN(pin);
@@ -114,7 +86,7 @@ void LinuxGPIO_RPI::pinMode(uint8_t pin, uint8_t output)
     }
 }
 
-void LinuxGPIO_RPI::pinMode(uint8_t pin, uint8_t output, uint8_t alt)
+void GPIO_RPI::pinMode(uint8_t pin, uint8_t output, uint8_t alt)
 {
     if (output == HAL_GPIO_INPUT) {
         GPIO_MODE_IN(pin);
@@ -127,18 +99,18 @@ void LinuxGPIO_RPI::pinMode(uint8_t pin, uint8_t output, uint8_t alt)
     }
 }
 
-int8_t LinuxGPIO_RPI::analogPinToDigitalPin(uint8_t pin)
+int8_t GPIO_RPI::analogPinToDigitalPin(uint8_t pin)
 {
     return -1;
 }
 
-uint8_t LinuxGPIO_RPI::read(uint8_t pin)
+uint8_t GPIO_RPI::read(uint8_t pin)
 {
     uint32_t value = GPIO_GET(pin);
     return value ? 1: 0;
 }
 
-void LinuxGPIO_RPI::write(uint8_t pin, uint8_t value)
+void GPIO_RPI::write(uint8_t pin, uint8_t value)
 {
     if (value == LOW) {
         GPIO_SET_LOW = 1 << pin;
@@ -147,22 +119,22 @@ void LinuxGPIO_RPI::write(uint8_t pin, uint8_t value)
     }
 }
 
-void LinuxGPIO_RPI::toggle(uint8_t pin)
+void GPIO_RPI::toggle(uint8_t pin)
 {
     write(pin, !read(pin));
 }
 
-void LinuxGPIO_RPI::setPWMPeriod(uint8_t pin, uint32_t time_us)
+void GPIO_RPI::setPWMPeriod(uint8_t pin, uint32_t time_us)
 {
     setPWM0Period(time_us);
 }
 
-void LinuxGPIO_RPI::setPWMDuty(uint8_t pin, uint8_t percent)
+void GPIO_RPI::setPWMDuty(uint8_t pin, uint8_t percent)
 {
     setPWM0Duty(percent);
 }
 
-void LinuxGPIO_RPI::setPWM0Period(uint32_t time_us)
+void GPIO_RPI::setPWM0Period(uint32_t time_us)
 {
     // stop clock and waiting for busy flag doesn't work, so kill clock
     *(clk + PWMCLK_CNTL) = 0x5A000000 | (1 << 5);
@@ -197,7 +169,7 @@ void LinuxGPIO_RPI::setPWM0Period(uint32_t time_us)
     *(pwm + PWM_CTL) = 3;
 }
 
-void LinuxGPIO_RPI::setPWM0Duty(uint8_t percent)
+void GPIO_RPI::setPWM0Duty(uint8_t percent)
 {
     int bitCount;
     unsigned int bits = 0;
@@ -215,19 +187,19 @@ void LinuxGPIO_RPI::setPWM0Duty(uint8_t percent)
 }
 
 /* Alternative interface: */
-AP_HAL::DigitalSource* LinuxGPIO_RPI::channel(uint16_t n) {
-    return new LinuxDigitalSource(n);
+AP_HAL::DigitalSource* GPIO_RPI::channel(uint16_t n) {
+    return new DigitalSource(n);
 }
 
 /* Interrupt interface: */
-bool LinuxGPIO_RPI::attach_interrupt(uint8_t interrupt_num, AP_HAL::Proc p, uint8_t mode)
+bool GPIO_RPI::attach_interrupt(uint8_t interrupt_num, AP_HAL::Proc p, uint8_t mode)
 {
     return true;
 }
 
-bool LinuxGPIO_RPI::usb_connected(void)
+bool GPIO_RPI::usb_connected(void)
 {
     return false;
 }
 
-#endif // CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO || CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_RASPILOT
+#endif

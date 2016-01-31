@@ -9,7 +9,7 @@ extern AP_HAL::HAL& hal;
 void
 Compass::compass_cal_update()
 {
-    AP_Notify::flags.compass_cal_running = 0;
+    bool running = false;
 
     for (uint8_t i=0; i<COMPASS_MAX_INSTANCES; i++) {
         bool failure;
@@ -24,9 +24,12 @@ Compass::compass_cal_update()
         }
 
         if (_calibrator[i].running()) {
-            AP_Notify::flags.compass_cal_running = 1;
+            running = true;
         }
     }
+
+    AP_Notify::flags.compass_cal_running = running;
+
     if (is_calibrating()) {
         _cal_has_run = true;
         return;
@@ -91,9 +94,12 @@ Compass::start_calibration_all(bool retry, bool autosave, float delay, bool auto
 void
 Compass::cancel_calibration(uint8_t i)
 {
-    _calibrator[i].clear();
-    AP_Notify::events.compass_cal_canceled = 1;
     AP_Notify::events.initiated_compass_cal = 0;
+
+    if (_calibrator[i].running() || _calibrator[i].get_status() == COMPASS_CAL_WAITING_TO_START) {
+        AP_Notify::events.compass_cal_canceled = 1;
+    }
+    _calibrator[i].clear();
 }
 
 void
@@ -280,10 +286,10 @@ uint8_t Compass::handle_mag_cal_command(const mavlink_command_long_t &packet)
         }
 
         uint8_t mag_mask = packet.param1;
-        bool retry = packet.param2;
-        bool autosave = packet.param3;
+        bool retry = !is_zero(packet.param2);
+        bool autosave = !is_zero(packet.param3);
         float delay = packet.param4;
-        bool autoreboot = packet.param5;
+        bool autoreboot = !is_zero(packet.param5);
 
         if (mag_mask == 0) { // 0 means all
             if (!start_calibration_all(retry, autosave, delay, autoreboot)) {

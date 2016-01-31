@@ -8,6 +8,10 @@
 
 #include "AP_Motors_Class.h"
 
+#ifndef AP_MOTORS_DENSITY_COMP
+#define AP_MOTORS_DENSITY_COMP 1
+#endif
+
 #define AP_MOTORS_DEFAULT_MIN_THROTTLE  130
 #define AP_MOTORS_DEFAULT_MID_THROTTLE  500
 #define AP_MOTORS_DEFAULT_MAX_THROTTLE  1000
@@ -26,7 +30,7 @@
 #define AP_MOTORS_THR_MIX_MAX_DEFAULT   0.5f    // maximum throttle mix default
 
 // To-Do: replace this hard coded counter with a timer
-#if HAL_CPU_CLASS < HAL_CPU_CLASS_75 || CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX
  // slow start increments - throttle increase per (100hz) iteration.  i.e. 5 = full speed in 2 seconds
  #define AP_MOTOR_SLOW_START_INCREMENT           10      // max throttle ramp speed (i.e. motors can reach full throttle in 1 second)
  #define AP_MOTOR_SLOW_START_LOW_END_INCREMENT   2       // min throttle ramp speed (i.e. motors will speed up from zero to _spin_when_armed speed in about 1 second)

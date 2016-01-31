@@ -6,9 +6,14 @@
 
 #include "SerialDevice.h"
 
-class Linux::LinuxUARTDriver : public AP_HAL::UARTDriver {
+class Linux::UARTDriver : public AP_HAL::UARTDriver {
 public:
-    LinuxUARTDriver(bool default_console);
+    UARTDriver(bool default_console);
+
+    static UARTDriver *from(AP_HAL::UARTDriver *uart) {
+        return static_cast<UARTDriver*>(uart);
+    }
+
     /* Linux implementations of UARTDriver virtual methods */
     void begin(uint32_t b);
     void begin(uint32_t b, uint16_t rxS, uint16_t txS);
@@ -51,11 +56,15 @@ private:
     void _udp_start_connection(void);
     void _tcp_start_connection(void);
     bool _serial_start_connection(void);
+    bool _qflight_start_connection(void);
 
     enum device_type {
         DEVICE_TCP,
         DEVICE_UDP,
         DEVICE_SERIAL,
+#if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_QFLIGHT
+        DEVICE_QFLIGHT,
+#endif
         DEVICE_UNKNOWN
     };
 

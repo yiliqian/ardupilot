@@ -10,25 +10,28 @@
 #include <pthread.h>
 
 #define LINUX_SCHEDULER_MAX_TIMER_PROCS 10
+#define LINUX_SCHEDULER_MAX_TIMESLICED_PROCS 10
 #define LINUX_SCHEDULER_MAX_IO_PROCS 10
 
-class Linux::LinuxScheduler : public AP_HAL::Scheduler {
+class Linux::Scheduler : public AP_HAL::Scheduler {
 
 typedef void *(*pthread_startroutine_t)(void *);
 
 public:
-    LinuxScheduler();
-    void     init(void* machtnichts);
+    Scheduler();
+
+    static Scheduler *from(AP_HAL::Scheduler *scheduler) {
+        return static_cast<Scheduler*>(scheduler);
+    }
+
+    void     init();
     void     delay(uint16_t ms);
-    uint32_t millis();
-    uint32_t micros();
-    uint64_t millis64();
-    uint64_t micros64();
     void     delay_microseconds(uint16_t us);
     void     register_delay_callback(AP_HAL::Proc,
                 uint16_t min_time_ms);
 
     void     register_timer_process(AP_HAL::MemberProc);
+    bool     register_timer_process(AP_HAL::MemberProc, uint8_t);
     void     register_io_process(AP_HAL::MemberProc);
     void     suspend_timer_procs();
     void     resume_timer_procs();
@@ -43,13 +46,13 @@ public:
     bool     system_initializing();
     void     system_initialized();
 
-    void     panic(const prog_char_t *errormsg) NORETURN;
     void     reboot(bool hold_in_bootloader);
 
     void     stop_clock(uint64_t time_usec);
 
+    uint64_t stopped_clock_usec() const { return _stopped_clock_usec; }
+
 private:
-    struct timespec _sketch_start_time;    
     void _timer_handler(int signum);
     void _microsleep(uint32_t usec);
 
@@ -64,6 +67,16 @@ private:
     AP_HAL::MemberProc _timer_proc[LINUX_SCHEDULER_MAX_TIMER_PROCS];
     uint8_t _num_timer_procs;
     volatile bool _in_timer_proc;
+    uint8_t _timeslices_count;
+
+    struct timesliced_proc {
+        AP_HAL::MemberProc proc;
+        uint8_t timeslot;
+        uint8_t freq_div;
+    };
+    timesliced_proc _timesliced_proc[LINUX_SCHEDULER_MAX_TIMESLICED_PROCS];
+    uint8_t _num_timesliced_procs;
+    uint8_t _max_freq_div;
 
     AP_HAL::MemberProc _io_proc[LINUX_SCHEDULER_MAX_IO_PROCS];
     uint8_t _num_io_procs;
@@ -81,17 +94,19 @@ private:
     static void *_io_thread(void* arg);
     static void *_rcin_thread(void* arg);
     static void *_uart_thread(void* arg);
+    static void _run_uarts(void);
     static void *_tonealarm_thread(void* arg);
 
     void _run_timers(bool called_from_timer_thread);
     void _run_io(void);
     void _create_realtime_thread(pthread_t *ctx, int rtprio, const char *name,
                                  pthread_startroutine_t start_routine);
+    bool _register_timesliced_proc(AP_HAL::MemberProc, uint8_t);
 
-    uint64_t stopped_clock_usec;
+    uint64_t _stopped_clock_usec;
 
-    LinuxSemaphore _timer_semaphore;
-    LinuxSemaphore _io_semaphore;
+    Semaphore _timer_semaphore;
+    Semaphore _io_semaphore;
 };
 
 #endif // CONFIG_HAL_BOARD

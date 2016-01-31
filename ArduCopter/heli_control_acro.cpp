@@ -13,6 +13,11 @@ bool Copter::heli_acro_init(bool ignore_checks)
     // if heli is equipped with a flybar, then tell the attitude controller to pass through controls directly to servos
     attitude_control.use_flybar_passthrough(motors.has_flybar(), motors.supports_yaw_passthrough());
 
+    motors.set_acro_tail(true);
+    
+    // set stab collective false to use full collective pitch range
+    input_manager.set_use_stab_col(false);
+
     // always successfully enter acro
     return true;
 }
@@ -22,6 +27,7 @@ bool Copter::heli_acro_init(bool ignore_checks)
 void Copter::heli_acro_run()
 {
     float target_roll, target_pitch, target_yaw;
+    int16_t pilot_throttle_scaled;
     
     // Tradheli should not reset roll, pitch, yaw targets when motors are not runup, because
     // we may be in autorotation flight.  These should be reset only when transitioning from disarmed
@@ -35,7 +41,6 @@ void Copter::heli_acro_run()
     }
     
     if(motors.armed() && heli_flags.init_targets_on_arming) {
-        attitude_control.relax_bf_rate_controller();
         attitude_control.set_yaw_target_to_current_heading();
         if (motors.rotor_speed_above_critical()) {
             heli_flags.init_targets_on_arming=false;
@@ -48,28 +53,46 @@ void Copter::heli_acro_run()
     if (!motors.has_flybar()){
         // convert the input to the desired body frame rate
         get_pilot_desired_angle_rates(channel_roll->control_in, channel_pitch->control_in, channel_yaw->control_in, target_roll, target_pitch, target_yaw);
+
+        if (motors.supports_yaw_passthrough()) {
+            // if the tail on a flybar heli has an external gyro then
+            // also use no deadzone for the yaw control and
+            // pass-through the input direct to output.
+            target_yaw = channel_yaw->pwm_to_angle_dz(0);
+        }
+
         // run attitude controller
-        attitude_control.rate_bf_roll_pitch_yaw(target_roll, target_pitch, target_yaw);
+        attitude_control.input_rate_bf_roll_pitch_yaw(target_roll, target_pitch, target_yaw);
     }else{
-        // flybar helis only need yaw rate control
-        get_pilot_desired_yaw_rate(channel_yaw->control_in, target_yaw);
+        /*
+          for fly-bar passthrough use control_in values with no
+          deadzone. This gives true pass-through.
+         */
+        float roll_in = channel_roll->pwm_to_angle_dz(0);
+        float pitch_in = channel_pitch->pwm_to_angle_dz(0);
+        float yaw_in;
+        
+        if (motors.supports_yaw_passthrough()) {
+            // if the tail on a flybar heli has an external gyro then
+            // also use no deadzone for the yaw control and
+            // pass-through the input direct to output.
+            yaw_in = channel_yaw->pwm_to_angle_dz(0);
+        } else {
+            // if there is no external gyro then run the usual
+            // ACRO_YAW_P gain on the input control, including
+            // deadzone
+            yaw_in = get_pilot_desired_yaw_rate(channel_yaw->control_in);
+        }
+
         // run attitude controller
-        attitude_control.passthrough_bf_roll_pitch_rate_yaw(channel_roll->control_in, channel_pitch->control_in, target_yaw);
+        attitude_control.passthrough_bf_roll_pitch_rate_yaw(roll_in, pitch_in, yaw_in);
     }
 
+    // get pilot's desired throttle
+    pilot_throttle_scaled = input_manager.get_pilot_desired_collective(channel_throttle->control_in);
+
     // output pilot's throttle without angle boost
-    attitude_control.set_throttle_out(channel_throttle->control_in, false, g.throttle_filt);
-}
-
-// get_pilot_desired_yaw_rate - transform pilot's yaw input into a desired yaw angle rate
-// returns desired yaw rate in centi-degrees-per-second
-void Copter::get_pilot_desired_yaw_rate(int16_t yaw_in, float &yaw_out)
-{
-    // calculate rate request
-    float rate_bf_yaw_request = yaw_in * g.acro_yaw_p;
-
-    // hand back rate request
-    yaw_out = rate_bf_yaw_request;
+    attitude_control.set_throttle_out(pilot_throttle_scaled, false, g.throttle_filt);
 }
 
 #endif  //HELI_FRAME
